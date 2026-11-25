@@ -331,13 +331,18 @@ function viewAccount(a) {
   if (a.kind === 'robo' || a.kind === 'pension') {
     const fee = a.feePct ? round2(b.balance * a.feePct / 100) : null;
     const eq = a.equityPct !== null && a.equityPct !== undefined && a.equityPct !== '' ? +a.equityPct : null;
+    const ci = a.kind === 'robo' ? cashInfo(a, b.balance) : null;
     h += `<section class="card"><h2>Cartera</h2><div class="stats">
       <div><div class="k">Entidad</div><div class="v">${esc(a.entity || '—')}</div></div>
       <div><div class="k">${a.kind === 'pension' ? 'Tipo de plan' : 'Perfil de riesgo'}</div><div class="v">${a.kind === 'pension' ? (a.pensionType === 'empleo' ? 'De empleo' : 'Individual') : a.risk ? `${a.risk}/10 <small class="muted">${RISK_LABEL(a.risk)}</small>` : '—'}</div></div>
       <div><div class="k">Comisión anual</div><div class="v">${a.feePct ? amountInput(a.feePct) + ' %' : '—'}</div></div></div>
       ${fee !== null ? `<p class="hint" style="margin:10px 0 0">Al valor actual, las comisiones suponen unos <strong>${money(fee)} al año</strong> (${money(fee / 12)} al mes).</p>` : ''}
-      ${eq !== null ? `<div class="catbar" style="margin-top:14px"><div class="top"><span>Renta variable ${eq}%</span><span>Renta fija ${100 - eq}%</span></div>
-        <div class="track"><div class="fill" style="width:${eq}%"></div></div></div>` : ''}</section>`;
+      ${ci ? `<div class="split" style="margin-top:12px">
+        <div><div class="k">Invertido</div><div class="v">${money(b.balance - ci.cash)}</div></div>
+        <div><div class="k">Efectivo sin invertir${ci.real ? '' : ' (estimado)'}</div><div class="v">${money(ci.cash)}</div></div></div>
+        <p class="hint" style="margin:8px 0 0">${ci.real ? `Según tu última valoración (${fmtShort(ci.date)}).` : `Estimado con la regla de tu cartera: ${a.cashFixed ? money(+a.cashFixed) : ''}${a.cashFixed && a.cashPct ? ' + ' : ''}${a.cashPct ? amountInput(a.cashPct) + ' % del valor' : ''}. Al actualizar el valor puedes indicar el efectivo real.`}</p>` : ''}
+      ${eq !== null ? `<div class="catbar" style="margin-top:14px"><div class="top"><span>Renta variable ${eq}%${ci ? ` · ${money((b.balance - ci.cash) * eq / 100)}` : ''}</span><span>Renta fija ${100 - eq}%${ci ? ` · ${money((b.balance - ci.cash) * (100 - eq) / 100)}` : ''}</span></div>
+        <div class="track"><div class="fill" style="width:${eq}%"></div></div></div>${ci ? '<p class="hint" style="margin:4px 0 0">Reparto sobre la parte invertida.</p>' : ''}` : ''}</section>`;
   }
   if (a.kind === 'pension') {
     const y = new Date().getFullYear(), done = contributedInYear(a.id, y), limit = pensionLimit(a);
@@ -578,6 +583,15 @@ function pensionAlerts() {
     .map((a) => ({ a, done: contributedInYear(a.id, y), limit: pensionLimit(a) }))
     .filter((x) => x.done < x.limit);
 }
+/** Efectivo sin invertir dentro de una cartera automatizada: el real de la última valoración o la estimación fijo + % del valor. */
+function cashInfo(a, balance) {
+  const sets = S.movements.filter((m) => m.accountId === a.id && m.type === 'set').sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : (x.createdAt || 0) - (y.createdAt || 0)));
+  const last = sets[sets.length - 1];
+  if (last && last.cash !== null && last.cash !== undefined && last.cash !== '') return { cash: round2(Math.min(+last.cash, balance)), real: true, date: last.date };
+  const hasRule = (+a.cashFixed || 0) > 0 || (+a.cashPct || 0) > 0;
+  if (!hasRule) return null;
+  return { cash: round2(Math.max(0, Math.min(balance, (+a.cashFixed || 0) + balance * (+a.cashPct || 0) / 100))), real: false };
+}
 /** Datos de la última valoración real y lo aportado (neto) después de ella. */
 function valuationInfo(a) {
   const sets = S.movements.filter((m) => m.accountId === a.id && m.type === 'set').sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : (x.createdAt || 0) - (y.createdAt || 0)));
@@ -643,7 +657,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v1.2</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v1.3</p>`;
 }
 
 function recRow(r) {
@@ -710,6 +724,7 @@ function openMovementForm({ movement = null, preset = {}, fromRecurring = null }
     <label class="amount"><span data-amount-label>Importe (€)</span><input name="amount" inputmode="decimal" placeholder="0,00" value="${amountInput(m.amount)}" required></label>
     <label><span data-acc-label>Cuenta</span><select name="accountId">${accountOptions(defAcc, { includeArchived: editing })}</select></label>
     <p class="hint" data-show="set" data-current></p>
+    <label data-show="set" data-only-robo><span>De ello, efectivo sin invertir (€, opcional)</span><input name="cash" inputmode="decimal" placeholder="Si lo dejas vacío, se estima" value="${amountInput(m.cash)}"></label>
     <label data-show="transfer"><span>Cuenta destino</span><select name="toAccountId">${accountOptions(m.toAccountId || accountsSorted().find((a) => a.id !== defAcc)?.id, { includeArchived: editing })}</select></label>
     <label data-show="expense"><span>Categoría</span><select name="catExpense">${catOptions(EXPENSE_CATS, m.type === 'expense' ? m.category : '')}</select></label>
     <label data-show="income"><span>Categoría</span><select name="catIncome">${catOptions(INCOME_CATS, m.type === 'income' ? m.category : 'Nómina')}</select></label>
@@ -724,8 +739,9 @@ function openMovementForm({ movement = null, preset = {}, fromRecurring = null }
     const sync = () => {
       const t = f.type.value;
       $$('[data-show]', f).forEach((el) => { el.hidden = !el.dataset.show.split(' ').includes(t); });
+      if (acc(f.accountId.value)?.kind !== 'robo') $('[data-only-robo]', f).hidden = true;
       $$('.seg button', f).forEach((b) => b.classList.toggle('on', b.dataset.type === t));
-      $('[data-amount-label]', f).textContent = t === 'set' ? 'Saldo / valor actual real (€)' : 'Importe (€)';
+      $('[data-amount-label]', f).textContent = t === 'set' ? (isInvest(acc(f.accountId.value) || {}) ? 'Valor total actual (€)' : 'Saldo actual real (€)') : 'Importe (€)';
       $('[data-acc-label]', f).textContent = t === 'transfer' ? 'Desde' : 'Cuenta';
       if (t === 'set') {
         const ca = acc(f.accountId.value);
@@ -754,6 +770,8 @@ function openMovementForm({ movement = null, preset = {}, fromRecurring = null }
         fixed: type === 'expense' ? f.fixed.checked : false,
         note: f.note.value.trim(),
       };
+      const cashTxt = f.cash.value.trim();
+      data.cash = type === 'set' && acc(data.accountId)?.kind === 'robo' && cashTxt && Number.isFinite(parseAmount(cashTxt)) ? round2(parseAmount(cashTxt)) : null;
       if (editing) store.update('movements', movement.id, data);
       else {
         if (fromRecurring) data.recurringId = fromRecurring.id;
@@ -785,6 +803,10 @@ function openAccountForm(a = null) {
       <div class="two"><label data-kind="robo"><span>Perfil de riesgo (1–10)</span><input name="risk" type="number" min="1" max="10" step="1" value="${x.risk || ''}"></label>
       <label><span>Comisión total anual (%)</span><input name="feePct" inputmode="decimal" placeholder="0,6" value="${amountInput(x.feePct)}"></label></div>
       <label><span>% en renta variable (el resto, renta fija)</span><input name="equityPct" type="number" min="0" max="100" step="1" placeholder="Ej. 75" value="${x.equityPct ?? ''}"></label>
+      <div data-kind="robo"><span class="hint" style="display:block;margin:0 0 4px">Efectivo que la cartera mantiene sin invertir</span>
+      <div class="two"><label><span>Cantidad fija (€)</span><input name="cashFixed" inputmode="decimal" value="${amountInput(x.cashFixed === 0 ? '' : x.cashFixed ?? 150)}"></label>
+      <label><span>+ % del valor</span><input name="cashPct" inputmode="decimal" value="${amountInput(x.cashPct === 0 ? '' : x.cashPct ?? 0.5)}"></label></div>
+      <p class="hint">Por ejemplo 150 € + 0,5 %. Sirve para saber cuánto está realmente invertido. Déjalo vacío si tu cartera no guarda efectivo.</p></div>
       <p class="hint">Consejo: crea también la aportación automática en Más → Fijos y automáticos.</p></div>
     <div data-kind="inversion robo pension">
       <label><span>Actualizar el valor</span><select name="valuationFreq">${Object.entries(VAL_FREQS).map(([k, v]) => `<option value="${k}" ${(x.valuationFreq || 'quarterly') === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
@@ -831,6 +853,10 @@ function openAccountForm(a = null) {
         Object.assign(data, { entity: f.entity.value.trim(), feePct: Number.isFinite(fee) ? fee : null,
           risk: kind === 'robo' && risk >= 1 && risk <= 10 ? risk : null, equityPct: eq >= 0 && eq <= 100 ? eq : null });
       } else Object.assign(data, { entity: null, feePct: null, risk: null, equityPct: null });
+      if (kind === 'robo') {
+        const cf = f.cashFixed.value.trim() ? parseAmount(f.cashFixed.value) : null, cp = f.cashPct.value.trim() ? parseAmount(f.cashPct.value) : null;
+        Object.assign(data, { cashFixed: Number.isFinite(cf) ? cf : 0, cashPct: Number.isFinite(cp) ? cp : 0 }); // 0 = sin efectivo (vacío a propósito)
+      } else Object.assign(data, { cashFixed: null, cashPct: null });
       if (kind === 'deposito') {
         data.tae = f.tae.value.trim() ? parseAmount(f.tae.value) : null;
         data.startDate = f.startDate.value || null; data.maturityDate = f.maturityDate.value || null;
