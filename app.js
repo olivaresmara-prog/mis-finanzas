@@ -68,7 +68,8 @@ const TYPES = {
   set: { label: 'Actualizar saldo', icon: '🎯' },
 };
 const EXPENSE_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud', 'Seguros', 'Suscripciones', 'Ocio', 'Compras', 'Impuestos', 'Otros'];
-const INCOME_CATS = ['Nómina', 'Ingreso extra', 'Aportación empresa', 'Devoluciones', 'Otros'];
+const EXTERNAL_CAT = 'Desde otra cuenta mía';
+const INCOME_CATS = ['Nómina', 'Ingreso extra', 'Aportación empresa', 'Devoluciones', EXTERNAL_CAT, 'Otros'];
 const FREQS = { weekly: 'Semanal', monthly: 'Mensual', quarterly: 'Trimestral', yearly: 'Anual' };
 const INVEST_KINDS = ['inversion', 'robo', 'pension'];
 const VAL_FREQS = { monthly: { label: 'Cada mes', days: 31 }, quarterly: { label: 'Cada trimestre', days: 92 }, semiannual: { label: 'Cada semestre', days: 183 }, yearly: { label: 'Cada año', days: 366 } };
@@ -150,7 +151,7 @@ function monthStats(y, m) {
   for (const mv of S.movements) {
     if (!mv.date?.startsWith(k)) continue;
     const amt = +mv.amount || 0;
-    if (mv.type === 'income') r.income += amt;
+    if (mv.type === 'income') { if (mv.category !== EXTERNAL_CAT) r.income += amt; } // dinero propio de otra cuenta: no es ingreso
     else if (mv.type === 'yield') r.yields += amt;
     else if (mv.type === 'expense') {
       if (mv.fixed) r.fixed += amt; else r.extra += amt;
@@ -159,7 +160,7 @@ function monthStats(y, m) {
   }
   r.expenses = r.fixed + r.extra;
   r.saved = r.income - r.expenses;
-  r.rate = r.income > 0 ? (r.saved / r.income) * 100 : null;
+  r.rate = r.income > 0 && r.saved / r.income >= -1 ? (r.saved / r.income) * 100 : null; // sin sentido si los gastos superan el doble de los ingresos
   return r;
 }
 
@@ -218,7 +219,8 @@ function viewHome() {
   const bal = computeBalances(), t = totals(bal);
   const pend = pendingRecurring(), alerts = depositAlerts(bal), reminders = valueReminders(), pensions = pensionAlerts();
   const d = new Date(), ms = monthStats(d.getFullYear(), d.getMonth());
-  const recent = sortedMovements().reverse().slice(0, 8);
+  // En Inicio solo gastos, ingresos y rendimientos: los traspasos y aportaciones se ven dentro de cada cuenta
+  const recent = sortedMovements().reverse().filter((m) => ['expense', 'income', 'yield'].includes(m.type)).slice(0, 8);
 
   let h = `<section class="card hero">
     <div class="label">Patrimonio total</div>
@@ -227,6 +229,15 @@ function viewHome() {
       <div><div class="k">Disponible</div><div class="v">${money(t.avail)}</div></div>
       <div><div class="k">Inmovilizado</div><div class="v">${money(t.locked)}</div></div>
     </div></section>`;
+
+  {
+    const now = new Date(), y = now.getFullYear(), mo = now.getMonth();
+    const tc = monthTransfers(y, mo, 'contrib').reduce((x, m) => x + (+m.amount || 0), 0);
+    const tt = monthTransfers(y, mo, 'moves').reduce((x, m) => x + (+m.amount || 0), 0);
+    h += `<div class="quick">
+      <button data-action="fs-open" data-k="contrib"><span class="qi">📥</span><span class="qt">Aportaciones del mes</span><span class="qv">${money(tc)}</span></button>
+      <button data-action="fs-open" data-k="moves"><span class="qi">🔁</span><span class="qt">Traspasos del mes</span><span class="qv">${money(tt)}</span></button></div>`;
+  }
 
   if (pend.length) {
     h += `<section class="card"><h2>Pendientes de confirmar (${pend.length})</h2>
@@ -258,8 +269,8 @@ function viewHome() {
       <div><div class="k">Ahorro</div><div class="v">${money(ms.saved)}${ms.rate !== null ? ` <small class="muted">${Math.round(ms.rate)}%</small>` : ''}</div></div>
     </div></section>`;
 
-  h += `<section class="card"><h2>Últimos movimientos <button class="link" data-action="all-movs">Ver todos</button></h2>
-    ${recent.length ? `<ul class="list">${recent.map((m) => movRow(m)).join('')}</ul>` : '<div class="empty">Aún no hay movimientos. Pulsa <strong>+</strong> para añadir uno.</div>'}</section>`;
+  h += `<section class="card"><h2>Últimos gastos e ingresos <button class="link" data-action="all-movs">Ver todos</button></h2>
+    ${recent.length ? `<ul class="list">${recent.map((m) => movRow(m)).join('')}</ul>` : '<div class="empty">Aún no hay gastos ni ingresos. Pulsa <strong>+</strong> para añadir uno.</div>'}</section>`;
   return h;
 }
 
@@ -397,6 +408,45 @@ function viewAccount(a) {
   h += `<section class="card"><h2>Movimientos</h2>${movs.length ? `<ul class="list">${movs.slice(0, nav.showAll ? undefined : 25).map((m) => movRow(m, a.id)).join('')}</ul>${!nav.showAll && movs.length > 25 ? `<button class="link" data-action="show-all-acc" style="margin-top:8px">Ver los ${movs.length} movimientos</button>` : ''}` : '<div class="empty">Sin movimientos todavía.</div>'}
     <p class="hint" style="margin:10px 0 0">Saldo inicial: ${money(+a.initialBalance || 0)}${a.initialDate ? ` el ${fmtDate(a.initialDate)}` : ''}${movs.some((m) => !applies(a.id, m.date)) ? '. Los marcados como <span class="badge">histórico</span> son anteriores a esa fecha: ya están incluidos en el saldo inicial y no lo cambian.' : ''}</p></section>`;
   return h;
+}
+
+// ─── Resumen mensual de aportaciones / traspasos (botones de Inicio) ───
+const isSavingsAcc = (a) => !!a && (INVEST_KINDS.includes(a.kind) || a.kind === 'deposito');
+/** kind 'contrib': dinero que entra en inversiones/depósitos desde cuentas normales. 'moves': el resto de traspasos. */
+function monthTransfers(y, m, kind) {
+  const k = monthKey(y, m);
+  return S.movements.filter((mv) => {
+    if (mv.type !== 'transfer' || !mv.date?.startsWith(k)) return false;
+    const isContrib = isSavingsAcc(acc(mv.toAccountId)) && !isSavingsAcc(acc(mv.accountId));
+    return kind === 'contrib' ? isContrib : !isContrib;
+  }).sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+let flowSheet = null;
+function openFlowSheet() {
+  const { k, y, m } = flowSheet;
+  const list = monthTransfers(y, m, k);
+  const total = list.reduce((x, mv) => x + (+mv.amount || 0), 0);
+  const groups = {};
+  for (const mv of list) {
+    const key = k === 'contrib' ? mv.toAccountId : `${mv.accountId}>${mv.toAccountId}`;
+    (groups[key] ||= { total: 0, items: [] });
+    groups[key].total += +mv.amount || 0; groups[key].items.push(mv);
+  }
+  const body = Object.entries(groups).sort((a, b) => b[1].total - a[1].total).map(([key, g]) => {
+    const [from, to] = k === 'contrib' ? [null, key] : key.split('>');
+    const title = k === 'contrib' ? accName(to) : `${accName(from)} → ${accName(to)}`;
+    const icon = KINDS[acc(to)?.kind]?.icon || '📁';
+    return `<div class="fs-group"><div class="row" style="cursor:default"><div class="row-icon">${icon}</div>
+        <div class="row-main"><div class="row-title">${esc(title)}</div><div class="row-sub">${g.items.length} ${k === 'contrib' ? (g.items.length === 1 ? 'aportación' : 'aportaciones') : (g.items.length === 1 ? 'traspaso' : 'traspasos')}</div></div>
+        <div class="row-amt">${money(g.total)}</div></div>
+      <ul class="fs-items">${g.items.map((mv) => `<li><span>${fmtShort(mv.date)}${k === 'contrib' ? ` · desde ${esc(accName(mv.accountId))}` : ''}${mv.note ? ` · ${esc(mv.note)}` : ''}</span><span>${money(+mv.amount)}</span></li>`).join('')}</ul></div>`;
+  }).join('');
+  openSheet(k === 'contrib' ? 'Aportaciones' : 'Traspasos', `
+    <div class="month-nav"><button data-action="fs-prev" aria-label="Mes anterior">‹</button><strong>${monthLabel(y, m)}</strong><button data-action="fs-next" aria-label="Mes siguiente">›</button></div>
+    <div class="card" style="background:var(--bg);box-shadow:none"><div class="k muted" style="font-size:13px">${k === 'contrib' ? 'Total aportado a inversiones y depósitos' : 'Total movido entre tus cuentas'}</div>
+      <div style="font-size:26px;font-weight:700">${money(total)}</div></div>
+    ${body || `<div class="empty">${k === 'contrib' ? 'No hay aportaciones' : 'No hay traspasos'} en este mes.</div>`}
+    <p class="hint" style="margin-top:10px">${k === 'contrib' ? 'Cuenta el dinero que pasa de tus cuentas normales a carteras, ETFs, planes de pensiones y depósitos.' : 'Cuenta los traspasos entre tus cuentas normales y lo que vuelve de inversiones o depósitos.'}</p>`);
 }
 
 // ─── Entradas y salidas por traspasos de una cuenta ───
@@ -707,7 +757,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v1.6</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v1.8</p>`;
 }
 
 function recRow(r) {
@@ -1057,6 +1107,9 @@ document.addEventListener('click', async (e) => {
     case 'edit-account': openAccountForm(acc(id)); break;
     case 'open-account': nav = { tab: 'accounts', accountId: id }; render(); window.scrollTo(0, 0); break;
     case 'show-all-acc': nav = { ...nav, showAll: true }; render(); break;
+    case 'fs-open': { const d = new Date(); flowSheet = { k: el.dataset.k, y: d.getFullYear(), m: d.getMonth() }; openFlowSheet(); break; }
+    case 'fs-prev': flowSheet = flowSheet.m === 0 ? { ...flowSheet, y: flowSheet.y - 1, m: 11 } : { ...flowSheet, m: flowSheet.m - 1 }; openFlowSheet(); break;
+    case 'fs-next': flowSheet = flowSheet.m === 11 ? { ...flowSheet, y: flowSheet.y + 1, m: 0 } : { ...flowSheet, m: flowSheet.m + 1 }; openFlowSheet(); break;
     case 'flow-period': flowPeriod = el.dataset.p; render(); break;
     case 'toggle-archived': showArchived = !showArchived; render(); break;
     case 'go-summary': nav = { tab: 'summary' }; render(); break;

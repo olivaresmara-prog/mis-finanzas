@@ -168,3 +168,15 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid var(--bar); }
 .legend i.lg-c { border-top: 2px dashed var(--muted); }
+
+/* Botones rápidos de Inicio */
+.quick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 12px; }
+.quick button { background: var(--card); border: 0; border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px 14px; text-align: left; cursor: pointer; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; }
+.quick .qi { grid-row: span 2; font-size: 22px; }
+.quick .qt { font-size: 13px; color: var(--muted); }
+.quick .qv { font-weight: 700; font-variant-numeric: tabular-nums; }
+.fs-group { border-top: 1px solid var(--line); padding: 4px 0 8px; }
+.fs-group .row { border-top: 0; }
+.fs-items { list-style: none; margin: 0 0 0 48px; padding: 0; font-size: 13px; color: var(--muted); }
+.fs-items li { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+.fs-items li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
