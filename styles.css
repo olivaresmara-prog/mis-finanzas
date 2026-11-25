@@ -234,3 +234,19 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 .inv-head .row-amt small { display: block; }
 .inv-head .grow { flex: 1; min-width: 0; }
 .inv-head .row-title, .inv-head .row-sub { white-space: normal; }
+
+/* Bloque "Este mes" de cada cuenta */
+.am-group { margin-top: 14px; }
+.am-head { display: flex; justify-content: space-between; font-weight: 600; padding: 6px 10px; border-radius: 8px; font-size: 14px; }
+.am-head small { font-weight: 500; opacity: .8; margin-left: 4px; }
+.am-head.in { background: #EAF3DE; color: #27500A; } .am-head.fix { background: #FAEEDA; color: #633806; }
+.am-head.ext { background: #FCEBEB; color: #791F1F; } .am-head.out { background: #E6F1FB; color: #0C447C; }
+@media (prefers-color-scheme: dark) {
+  .am-head.in { background: #27500A; color: #C0DD97; } .am-head.fix { background: #633806; color: #FAC775; }
+  .am-head.ext { background: #791F1F; color: #F7C1C1; } .am-head.out { background: #0C447C; color: #B5D4F4; }
+}
+.am-items { margin: 4px 0 0 10px; }
+.am-items li { cursor: pointer; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.am-items li:last-child { border-bottom: 0; }
+.am-total { display: flex; justify-content: space-between; font-weight: 700; margin-top: 14px; padding-top: 10px; border-top: 2px solid var(--line); }
+.am-total small { font-weight: 500; color: var(--muted); margin-left: 4px; }

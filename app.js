@@ -165,7 +165,7 @@ function monthStats(y, m) {
 }
 
 const pendingRecurring = () => S.recurring
-  .filter((r) => r.active !== false && r.nextDate && r.nextDate <= today())
+  .filter((r) => r.active !== false && r.nextDate && r.nextDate <= today() && (!r.endDate || r.nextDate <= r.endDate))
   .sort((a, b) => (a.nextDate < b.nextDate ? -1 : 1));
 
 function valueReminders() {
@@ -401,6 +401,7 @@ function viewAccount(a) {
     <button class="btn secondary" data-action="set-balance" data-id="${a.id}">${isInvest(a) ? 'Actualizar valor' : 'Ajustar saldo'}</button>
     <button class="btn ghost" data-action="edit-account" data-id="${a.id}">Editar</button></div>`;
   h += `<div class="init-bal">Saldo inicial: <strong>${money(+a.initialBalance || 0)}</strong>${a.initialDate ? ` el ${fmtDate(a.initialDate)}` : ''}</div>`;
+  if (!isSavingsAcc(a)) h += accountMonthCard(a);
   h += flowsCard(a);
   const recs = S.recurring.filter((r) => r.accountId === a.id || r.toAccountId === a.id);
   if (recs.length) h += `<section class="card"><h2>Fijos y automáticos</h2><ul class="list">${recs.map(recRow).join('')}</ul></section>`;
@@ -446,6 +447,50 @@ function openFlowSheet() {
       <div style="font-size:26px;font-weight:700">${money(total)}</div></div>
     ${body || `<div class="empty">${k === 'contrib' ? 'No hay aportaciones' : 'No hay traspasos'} en este mes.</div>`}
     <p class="hint" style="margin-top:10px">${k === 'contrib' ? 'Cuenta el dinero que pasa de tus cuentas normales a carteras, ETFs, planes de pensiones y depósitos.' : 'Cuenta los traspasos entre tus cuentas normales y lo que vuelve de inversiones o depósitos.'}</p>`);
+}
+
+// ─── Bloque "Este mes" de una cuenta (como una hoja de Excel por cuenta) ───
+let accMonth = (() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; })();
+function accountMonthCard(a) {
+  const { y, m } = accMonth, k = monthKey(y, m);
+  const first = `${k}-01`, last = endOfMonth(y, m);
+  const prevDay = toISO(new Date(y, m, 0));
+  const startsHere = a.initialDate && a.initialDate >= first && a.initialDate <= last;
+  const startBal = startsHere ? +a.initialBalance || 0 : computeBalances(prevDay)[a.id]?.balance || 0;
+  const endBal = computeBalances(last < today() ? last : today())[a.id]?.balance || 0;
+  const movs = sortedMovements().filter((x) => x.date.startsWith(k) && (x.accountId === a.id || x.toAccountId === a.id) && applies(a.id, x.date));
+  const groups = { in: [], fixed: [], extra: [], out: [] };
+  let adjust = false;
+  for (const x of movs) {
+    if (x.type === 'income' || x.type === 'yield' || (x.type === 'transfer' && x.toAccountId === a.id)) groups.in.push(x);
+    else if (x.type === 'expense') (x.fixed ? groups.fixed : groups.extra).push(x);
+    else if (x.type === 'transfer') groups.out.push(x);
+    else if (x.type === 'set') adjust = true;
+  }
+  const sum = (arr) => arr.reduce((s2, x) => s2 + (+x.amount || 0), 0);
+  const tIn = sum(groups.in), tFix = sum(groups.fixed), tExt = sum(groups.extra), tOut = sum(groups.out);
+  const base = startBal + tIn, spent = tFix + tExt + tOut;
+  const p = (v) => (base > 0 ? `${((v / base) * 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %` : '');
+  const label = (x) => {
+    if (x.type === 'transfer') return x.toAccountId === a.id ? `${x.note || 'Traspaso'} · desde ${accName(x.accountId)}` : `${x.note || 'Traspaso'} · a ${accName(x.toAccountId)}`;
+    if (x.type === 'yield') return x.note || 'Rendimiento';
+    return x.note || x.category || TYPES[x.type].label;
+  };
+  const block = (title, arr, total, cls, showPct) => arr.length ? `<div class="am-group">
+      <div class="am-head ${cls}"><span>${title}</span><span>${money(total)}${showPct ? ` <small>${p(total)}</small>` : ''}</span></div>
+      <ul class="fs-items am-items">${arr.map((x) => `<li data-action="edit-mov" data-id="${x.id}"><span>${fmtShort(x.date)} · ${esc(label(x))}</span><span>${money(+x.amount)}</span></li>`).join('')}</ul></div>` : '';
+  return `<section class="card"><div class="month-nav"><button data-action="am-prev" aria-label="Mes anterior">‹</button><strong>${monthLabel(y, m)}</strong><button data-action="am-next" aria-label="Mes siguiente">›</button></div>
+    <div class="stats">
+      <div><div class="k">${startsHere ? `Saldo inicial (${fmtShort(a.initialDate)})` : 'Saldo a 1 de mes'}</div><div class="v">${money(startBal)}</div></div>
+      <div><div class="k">Entradas</div><div class="v pos">${money(tIn)}</div></div>
+      <div><div class="k">${last < today() ? 'Saldo a fin de mes' : 'Saldo hoy'}</div><div class="v">${money(endBal)}</div></div></div>
+    ${movs.length ? `${block('Entradas', groups.in, tIn, 'in', false)}
+    ${block('Gastos fijos', groups.fixed, tFix, 'fix', true)}
+    ${block('Otros gastos', groups.extra, tExt, 'ext', true)}
+    ${block('Traspasos y aportaciones', groups.out, tOut, 'out', true)}
+    <div class="am-total"><span>Total salidas</span><span>${money(spent)}${base > 0 ? ` <small>${p(spent)}</small>` : ''}</span></div>
+    <p class="hint" style="margin:6px 0 0">Los % se calculan sobre el saldo a 1 de mes más las entradas (${money(base)}).${adjust ? ' Este mes incluye un ajuste de saldo.' : ''}</p>`
+    : '<div class="empty">Sin movimientos este mes.</div>'}</section>`;
 }
 
 // ─── Entradas y salidas por traspasos de una cuenta ───
@@ -860,15 +905,15 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v2.8</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v2.9</p>`;
 }
 
 function recRow(r) {
   const T = TYPES[r.type];
   const where = r.type === 'transfer' ? `${accName(r.accountId)} → ${accName(r.toAccountId)}` : accName(r.accountId);
   return `<li class="row" data-action="edit-rec" data-id="${r.id}"><div class="row-icon">${T.icon}</div>
-    <div class="row-main"><div class="row-title">${esc(r.name)} ${r.active === false ? '<span class="badge">pausado</span>' : ''}</div>
-    <div class="row-sub">${FREQS[r.frequency] || ''} · próximo ${fmtShort(r.nextDate)} · ${esc(where)}</div></div>
+    <div class="row-main"><div class="row-title">${esc(r.name)} ${r.finished ? '<span class="badge">terminado</span>' : r.active === false ? '<span class="badge">pausado</span>' : ''}</div>
+    <div class="row-sub">${FREQS[r.frequency] || ''}${r.finished ? '' : ` · próximo ${fmtShort(r.nextDate)}`}${r.endDate && !r.finished ? ` · hasta ${fmtShort(r.endDate)} (quedan ${remainingTimes(r)})` : ''} · ${esc(where)}</div></div>
     <div class="row-amt ${r.type === 'income' ? 'pos' : r.type === 'expense' ? 'neg' : ''}">${money(+r.amount)}</div></li>`;
 }
 
@@ -1074,7 +1119,17 @@ function openAccountForm(a = null) {
 
 // ─── Recurrentes ───
 function advanceRecurring(r) {
-  store.update('recurring', r.id, { nextDate: addPeriod(r.nextDate, r.frequency, r.anchorDay), lastDone: r.nextDate });
+  const next = addPeriod(r.nextDate, r.frequency, r.anchorDay);
+  const patch = { nextDate: next, lastDone: r.nextDate };
+  if (r.endDate && next > r.endDate) { patch.active = false; patch.finished = true; } // ya no quedan más
+  store.update('recurring', r.id, patch);
+}
+/** Cuántas veces quedan desde la próxima fecha hasta la fecha de fin (incluidas). */
+function remainingTimes(r) {
+  if (!r.endDate || !r.nextDate || r.nextDate > r.endDate) return 0;
+  let n = 0, d = r.nextDate;
+  while (d <= r.endDate && n < 600) { n++; d = addPeriod(d, r.frequency, r.anchorDay); }
+  return n;
 }
 function confirmRecurring(r) {
   store.add('movements', {
@@ -1102,6 +1157,9 @@ function openRecurringForm(r = null) {
     <label data-show="income"><span>Categoría</span><select name="catIncome">${catOptions(INCOME_CATS, x.type === 'income' ? x.category : 'Nómina')}</select></label>
     <div class="two"><label><span>Frecuencia</span><select name="frequency">${Object.entries(FREQS).map(([k, v]) => `<option value="${k}" ${x.frequency === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
     <label><span>Próxima fecha</span><input type="date" name="nextDate" value="${x.nextDate}" required></label></div>
+    <div class="two"><label><span>Hasta (opcional)</span><input type="date" name="endDate" value="${x.endDate || ''}"></label>
+    <label><span>…o número de veces</span><input name="times" type="number" min="1" step="1" inputmode="numeric" placeholder="Ej. 5"></label></div>
+    <p class="hint">Déjalo vacío si no tiene fin. Si pones cuántas veces quedan, calculo la fecha final.</p>
     <label class="check"><input type="checkbox" name="active" ${x.active !== false ? 'checked' : ''}> Activo</label>
     <p class="err" hidden></p>
     <div class="actions">${editing ? '<button type="button" class="btn danger" data-del>Eliminar</button>' : ''}<span class="spacer"></span>
@@ -1116,6 +1174,15 @@ function openRecurringForm(r = null) {
     };
     $$('.seg button', f).forEach((b) => b.addEventListener('click', () => { f.type.value = b.dataset.type; sync(); }));
     sync();
+    const fromTimes = () => {
+      const n = parseInt(f.times.value, 10);
+      if (!(n >= 1) || !f.nextDate.value) return;
+      let d = f.nextDate.value; const anchor = parseISO(d).getDate();
+      for (let i = 1; i < n; i++) d = addPeriod(d, f.frequency.value, anchor);
+      f.endDate.value = d;
+    };
+    f.times.addEventListener('input', fromTimes); f.frequency.addEventListener('change', fromTimes); f.nextDate.addEventListener('change', fromTimes);
+    f.endDate.addEventListener('input', () => { f.times.value = ''; });
     $('[data-del]', f)?.addEventListener('click', () => {
       if (confirm(`¿Eliminar "${r.name}"? Los movimientos ya registrados se mantienen.`)) { store.remove('recurring', r.id); closeSheet(); toast('Eliminado'); }
     });
@@ -1124,12 +1191,14 @@ function openRecurringForm(r = null) {
       const err = $('.err', f), type = f.type.value, amount = parseAmount(f.amount.value);
       if (!Number.isFinite(amount) || amount <= 0) { err.textContent = 'Introduce un importe válido.'; err.hidden = false; return; }
       if (type === 'transfer' && f.accountId.value === f.toAccountId.value) { err.textContent = 'Las cuentas deben ser distintas.'; err.hidden = false; return; }
+      if (f.endDate.value && f.endDate.value < f.nextDate.value) { err.textContent = 'La fecha "hasta" no puede ser anterior a la próxima fecha.'; err.hidden = false; return; }
       const data = {
         type, name: f.name.value.trim(), amount: round2(amount), accountId: f.accountId.value,
         toAccountId: type === 'transfer' ? f.toAccountId.value : null,
         category: type === 'expense' ? f.catExpense.value : type === 'income' ? f.catIncome.value : null,
         frequency: f.frequency.value, nextDate: f.nextDate.value, anchorDay: parseISO(f.nextDate.value).getDate(),
-        active: f.active.checked,
+        active: f.active.checked, endDate: f.endDate.value || null,
+        finished: f.endDate.value && f.nextDate.value > f.endDate.value ? true : false,
       };
       if (editing) store.update('recurring', r.id, data); else store.add('recurring', data);
       closeSheet(); toast('Guardado');
@@ -1208,8 +1277,11 @@ document.addEventListener('click', async (e) => {
     case 'edit-mov': { const m = S.movements.find((x) => x.id === id); if (m) openMovementForm({ movement: m }); break; }
     case 'new-account': openAccountForm(); break;
     case 'edit-account': openAccountForm(acc(id)); break;
-    case 'open-account': nav = { tab: 'accounts', accountId: id, back: nav.tab === 'accounts' ? nav.back : { ...nav } }; render(); window.scrollTo(0, 0); break;
+    case 'open-account': { const d = new Date(); accMonth = { y: d.getFullYear(), m: d.getMonth() }; }
+      nav = { tab: 'accounts', accountId: id, back: nav.tab === 'accounts' ? nav.back : { ...nav } }; render(); window.scrollTo(0, 0); break;
     case 'go-accounts': nav = { tab: 'more', sub: 'accounts' }; render(); break;
+    case 'am-prev': accMonth = accMonth.m === 0 ? { y: accMonth.y - 1, m: 11 } : { y: accMonth.y, m: accMonth.m - 1 }; render(); break;
+    case 'am-next': accMonth = accMonth.m === 11 ? { y: accMonth.y + 1, m: 0 } : { y: accMonth.y, m: accMonth.m + 1 }; render(); break;
     case 'cuenta-evo': cuentaEvo = id; render(); break;
     case 'show-all-acc': nav = { ...nav, showAll: true }; render(); break;
     case 'fs-open': { const d = new Date(); flowSheet = { k: el.dataset.k, y: d.getFullYear(), m: d.getMonth() }; openFlowSheet(); break; }
