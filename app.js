@@ -775,6 +775,21 @@ function contribSeries() {
   return pts;
 }
 
+/** En lugar de gráfico (un depósito no varía): plazo, días restantes e intereses estimados. */
+function depositSummary(a, b) {
+  const days = a.maturityDate ? daysBetween(today(), a.maturityDate) : null;
+  const est = estimatedInterest(a, b.contributed > 0 ? b.contributed : b.balance);
+  const start = a.startDate || a.initialDate;
+  const total = start && a.maturityDate ? Math.max(1, daysBetween(start, a.maturityDate)) : null;
+  const done = total ? Math.min(100, Math.max(0, ((total - Math.max(0, days)) / total) * 100)) : null;
+  return `<div class="stats" style="margin-top:4px">
+      <div><div class="k">TAE</div><div class="v">${a.tae ? amountInput(a.tae) + ' %' : '—'}</div></div>
+      <div><div class="k">${days !== null && days < 0 ? 'Vencido hace' : 'Quedan'}</div><div class="v">${days === null ? '—' : Math.abs(days) + ' días'}</div></div>
+      <div><div class="k">Intereses estimados</div><div class="v pos">${est ? money(est) : '—'}</div></div></div>
+    ${done !== null ? `<div class="catbar" style="margin-top:14px"><div class="top"><span>${fmtShort(start)}</span><span>${fmtDate(a.maturityDate)}</span></div>
+      <div class="track"><div class="fill" style="width:${done}%"></div></div></div><p class="hint" style="margin:4px 0 0">Plazo transcurrido: ${Math.round(done)} %. Intereses brutos, antes de la retención de IRPF.</p>` : ''}`;
+}
+
 function viewInversiones() {
   const invs = accountsSorted().filter(isSavingsAcc);
   if (!invs.length) return '<div class="card empty"><p>Aún no tienes carteras, fondos, planes de pensiones ni depósitos.</p><button class="btn" data-action="new-account">Nueva cuenta</button></div>';
@@ -801,7 +816,7 @@ function viewInversiones() {
       : `${t !== null ? `TIR ${pct(t)} · ` : ''}Próxima valoración ${vi && vi.next ? (vi.next <= today() ? 'ya' : fmtShort(vi.next)) : '—'}`;
     return `<section class="card inv-card"><div class="inv-head k-${a.kind}">${kindIcon(a.kind)}<div class="grow"><div class="row-title">${esc(a.name)}</div><div class="row-sub">${esc(extra)}</div></div>
         <div class="row-amt">${money(b.balance)}${showGain(a) && b.gain !== 0 ? `<small class="${b.gain >= 0 ? 'pos' : 'neg'}">${signed(b.gain)}${b.gainPct !== null ? ` (${pct(b.gainPct)})` : ''}</small>` : ''}</div></div>
-      ${withChartWidth(340, () => chartValueVsContributed(`chart-a-${a.id}`, investSeries(new Set([a.id]))))}
+      ${a.kind === 'deposito' ? depositSummary(a, b) : withChartWidth(340, () => chartValueVsContributed(`chart-a-${a.id}`, investSeries(new Set([a.id]))))}
       <button class="link" data-action="open-account" data-id="${a.id}" style="margin-top:8px">Ver detalle ›</button></section>`;
   }).join('') + '</div>';
   // Comparativa de rentabilidad
@@ -845,7 +860,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v2.7</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v2.8</p>`;
 }
 
 function recRow(r) {
