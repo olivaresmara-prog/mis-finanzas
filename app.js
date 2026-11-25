@@ -90,6 +90,12 @@ const accountsSorted = (includeArchived = false) => S.accounts
   .filter((a) => includeArchived || !a.archived)
   .sort((a, b) => Object.keys(KINDS).indexOf(a.kind) - Object.keys(KINDS).indexOf(b.kind) || a.name.localeCompare(b.name, 'es'));
 
+/** El saldo inicial de una cuenta ya incluye lo ocurrido antes de su fecha: esos movimientos no se vuelven a sumar en ESA cuenta. */
+function applies(accountId, date) {
+  const a = S.accounts.find((x) => x.id === accountId);
+  return !!a && (!a.initialDate || date >= a.initialDate);
+}
+
 function sortedMovements() {
   return [...S.movements].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.createdAt || 0) - (b.createdAt || 0)));
 }
@@ -106,7 +112,8 @@ function computeBalances(until = null) {
   for (const m of sortedMovements()) {
     if (until && m.date > until) break;
     const amt = +m.amount || 0;
-    const A = res[m.accountId], B = res[m.toAccountId];
+    const A = applies(m.accountId, m.date) ? res[m.accountId] : null;
+    const B = m.toAccountId && applies(m.toAccountId, m.date) ? res[m.toAccountId] : null;
     switch (m.type) {
       case 'income': if (A) { A.balance += amt; A.contributed += amt; } break;
       case 'expense': if (A) { A.balance -= amt; A.contributed -= amt; } break;
@@ -273,6 +280,7 @@ function movRow(m, ctxAccountId = null) {
     case 'set': title = m.note || 'Saldo actualizado'; sub = 'Actualización de saldo'; amt = `= ${money(a)}`; break;
   }
   const where = ctxAccountId || m.type === 'transfer' ? '' : ` · ${accName(m.accountId)}`;
+  if (ctxAccountId && !applies(ctxAccountId, m.date)) { cls = 'muted'; sub = 'No suma: anterior al saldo inicial' + (sub ? ' · ' + sub : ''); }
   return `<li class="row" data-action="edit-mov" data-id="${m.id}">
     <div class="row-icon">${T.icon}</div>
     <div class="row-main"><div class="row-title">${esc(title)}</div><div class="row-sub">${fmtShort(m.date)}${sub ? ' · ' + esc(sub) : ''}${esc(where)}</div></div>
@@ -543,7 +551,8 @@ function investFlows(ids) {
   const flows = [];
   for (const a of S.accounts) if (ids.has(a.id) && +a.initialBalance) flows.push({ date: a.initialDate || today(), amount: -(+a.initialBalance) });
   for (const m of S.movements) {
-    const amt = +m.amount || 0, inFrom = ids.has(m.accountId), inTo = ids.has(m.toAccountId);
+    const amt = +m.amount || 0;
+    const inFrom = ids.has(m.accountId) && applies(m.accountId, m.date), inTo = ids.has(m.toAccountId) && applies(m.toAccountId, m.date);
     if (m.type === 'transfer') { if (inTo && !inFrom) flows.push({ date: m.date, amount: -amt }); else if (inFrom && !inTo) flows.push({ date: m.date, amount: amt }); }
     else if (m.type === 'income' && inFrom) flows.push({ date: m.date, amount: -amt });
     else if (m.type === 'expense' && inFrom) flows.push({ date: m.date, amount: amt });
@@ -577,7 +586,7 @@ function annualReturn(ids) {
 /** Aportado a una cuenta en un año natural (traspasos de entrada + ingresos, p. ej. aportación de la empresa). */
 function contributedInYear(id, year) {
   const y = String(year);
-  return round2(S.movements.filter((m) => m.date.startsWith(y) && ((m.type === 'transfer' && m.toAccountId === id && m.accountId !== id) || (m.type === 'income' && m.accountId === id)))
+  return round2(S.movements.filter((m) => m.date.startsWith(y) && applies(id, m.date) && ((m.type === 'transfer' && m.toAccountId === id && m.accountId !== id) || (m.type === 'income' && m.accountId === id)))
     .reduce((s, m) => s + (+m.amount || 0), 0));
 }
 const pensionLimit = (a) => +a.annualLimit || PENSION_LIMITS[a.pensionType || 'individual'];
@@ -663,7 +672,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v1.4</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v1.5</p>`;
 }
 
 function recRow(r) {
