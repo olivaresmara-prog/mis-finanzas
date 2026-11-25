@@ -212,3 +212,6 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 .add-row { display: flex; justify-content: center; margin: 4px 0 8px; }
 
 .tflag { position: absolute; top: 12px; right: 12px; background: var(--tf); color: var(--tb); font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 10px; }
+
+.init-bal { font-size: 18px; margin: 4px 4px 14px; }
+.init-bal strong { font-size: 20px; font-weight: 700; }

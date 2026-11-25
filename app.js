@@ -398,11 +398,12 @@ function viewAccount(a) {
     ${isInvest(a) ? `<button class="btn" data-action="new-contribution" data-id="${a.id}">+ Aportación</button>` : `<button class="btn" data-action="new-mov-account" data-id="${a.id}">+ Movimiento</button>`}
     <button class="btn secondary" data-action="set-balance" data-id="${a.id}">${isInvest(a) ? 'Actualizar valor' : 'Ajustar saldo'}</button>
     <button class="btn ghost" data-action="edit-account" data-id="${a.id}">Editar</button></div>`;
+  h += `<div class="init-bal">Saldo inicial: <strong>${money(+a.initialBalance || 0)}</strong>${a.initialDate ? ` el ${fmtDate(a.initialDate)}` : ''}</div>`;
   h += flowsCard(a);
   const recs = S.recurring.filter((r) => r.accountId === a.id || r.toAccountId === a.id);
   if (recs.length) h += `<section class="card"><h2>Fijos y automáticos</h2><ul class="list">${recs.map(recRow).join('')}</ul></section>`;
   h += `<section class="card"><h2>Movimientos</h2>${movs.length ? `<ul class="list">${movs.slice(0, nav.showAll ? undefined : 25).map((m) => movRow(m, a.id)).join('')}</ul>${!nav.showAll && movs.length > 25 ? `<button class="link" data-action="show-all-acc" style="margin-top:8px">Ver los ${movs.length} movimientos</button>` : ''}` : '<div class="empty">Sin movimientos todavía.</div>'}
-    <p class="hint" style="margin:10px 0 0">Saldo inicial: ${money(+a.initialBalance || 0)}${a.initialDate ? ` el ${fmtDate(a.initialDate)}` : ''}${movs.some((m) => !applies(a.id, m.date)) ? '. Los marcados como <span class="badge">histórico</span> son anteriores a esa fecha: ya están incluidos en el saldo inicial y no lo cambian.' : ''}</p></section>`;
+    ${movs.some((m) => !applies(a.id, m.date)) ? '<p class="hint" style="margin:10px 0 0">Los marcados como <span class="badge">histórico</span> son anteriores al saldo inicial: ya están incluidos en él y no lo cambian.</p>' : ''}</section>`;
   return h;
 }
 
@@ -753,7 +754,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v2.5</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v2.6</p>`;
 }
 
 function recRow(r) {
