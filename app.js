@@ -71,6 +71,8 @@ const EXPENSE_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 
 const INCOME_CATS = ['Nómina', 'Ingreso extra', 'Aportación empresa', 'Devoluciones', 'Otros'];
 const FREQS = { weekly: 'Semanal', monthly: 'Mensual', quarterly: 'Trimestral', yearly: 'Anual' };
 const INVEST_KINDS = ['inversion', 'robo', 'pension'];
+const VAL_FREQS = { monthly: { label: 'Cada mes', days: 31 }, quarterly: { label: 'Cada trimestre', days: 92 }, semiannual: { label: 'Cada semestre', days: 183 }, yearly: { label: 'Cada año', days: 366 } };
+const valFreq = (a) => VAL_FREQS[a.valuationFreq] || VAL_FREQS.quarterly;
 const PENSION_LIMITS = { individual: 1500, empleo: 10000 }; // límites anuales deducibles vigentes en 2026
 const isInvest = (a) => INVEST_KINDS.includes(a.kind);
 const showGain = (a) => isInvest(a) || a.kind === 'deposito';
@@ -157,7 +159,7 @@ function valueReminders() {
   const t = today();
   return S.accounts.filter((a) => isInvest(a) && !a.archived)
     .map((a) => ({ a, last: lastValueUpdate(a) }))
-    .filter((x) => !x.last || daysBetween(x.last, t) > 30);
+    .filter((x) => !x.last || daysBetween(x.last, t) > valFreq(x.a).days);
 }
 
 function depositAlerts(bal) {
@@ -231,7 +233,7 @@ function viewHome() {
     h += `<section class="card"><h2>Avisos</h2>${pensions.map(({ a, done, limit }) => `
       <div class="alert"><span>🏛️</span><div class="grow"><strong>${esc(a.name)}</strong>: puedes aportar <strong>${money(limit - done)}</strong> más antes del 31 dic para deducir (llevas ${money(done)} de ${money(limit)}).</div>
       <button class="btn small" data-action="new-mov-pension" data-id="${a.id}">Aportar</button></div>`).join('')}${reminders.map(({ a, last }) => `
-      <div class="alert"><span>📊</span><div class="grow">Actualiza el valor de <strong>${esc(a.name)}</strong>${last ? ` (último: ${fmtShort(last)})` : ''}</div>
+      <div class="alert"><span>📊</span><div class="grow">Toca valorar <strong>${esc(a.name)}</strong> (${valFreq(a).label.toLowerCase()}${last ? `, última: ${fmtShort(last)}` : ''}). Mira el valor en tu entidad y apúntalo.</div>
       <button class="btn small" data-action="set-balance" data-id="${a.id}">Actualizar</button></div>`).join('')}${alerts.map(({ a, days, bal: b }) => `
       <div class="alert"><span>⏰</span><div class="grow"><strong>${esc(a.name)}</strong> ${days < 0 ? `venció hace ${-days} días` : days === 0 ? 'vence hoy' : `vence en ${days} días`} (${fmtShort(a.maturityDate)}) · ${money(b)}</div>
       <button class="btn small" data-action="maturity" data-id="${a.id}">Gestionar</button></div>`).join('')}</section>`;
@@ -309,19 +311,21 @@ function viewAccounts() {
 function viewAccount(a) {
   const bal = computeBalances(), b = bal[a.id];
   const movs = sortedMovements().filter((m) => m.accountId === a.id || m.toAccountId === a.id).reverse();
-  let h = `<section class="card hero"><div class="label">${esc(KINDS[a.kind]?.label || '')} · ${a.available ? 'Disponible' : 'Inmovilizado'}${a.archived ? ' · Archivada' : ''}</div>
-    <div class="big">${money(b.balance)}</div>`;
+  const vi = isInvest(a) ? valuationInfo(a) : null;
+  let h = `<section class="card hero"><div class="label">${esc(KINDS[a.kind]?.label || '')} · ${a.available ? 'Disponible' : 'Inmovilizado'}${a.archived ? ' · Archivada' : ''}${vi && vi.since ? ' · <strong>valor estimado</strong>' : ''}</div>
+    <div class="big">${money(b.balance)}</div>
+    ${vi && vi.since ? `<p class="hint" style="margin:-6px 0 12px">Última valoración ${money(vi.lastValue)} (${fmtShort(vi.lastDate)}) + ${money(vi.since)} aportados desde entonces.</p>` : ''}`;
   if (showGain(a)) {
     h += `<div class="split">
       <div><div class="k">Capital aportado</div><div class="v">${money(b.contributed)}</div></div>
       <div><div class="k">Ganancia</div><div class="v ${b.gain >= 0 ? 'pos' : 'neg'}">${signed(b.gain)}${b.gainPct !== null ? `<br><small>${pct(b.gainPct)}</small>` : ''}</div></div></div>`;
   }
   if (isInvest(a)) {
-    const ids = new Set([a.id]), tir = annualReturn(ids), last = lastValueUpdate(a);
+    const ids = new Set([a.id]), tir = annualReturn(ids);
     h += `<div class="split" style="margin-top:10px">
       <div><div class="k">Rentabilidad anual (TIR)</div><div class="v ${tir === null ? '' : tir >= 0 ? 'pos' : 'neg'}">${tir === null ? '—' : pct(tir)}</div></div>
-      <div><div class="k">Valor actualizado</div><div class="v">${last ? fmtShort(last) : '—'}</div></div></div>
-      <p class="hint" style="margin:8px 0 0">${tir === null ? 'La TIR aparece con al menos 3 meses de historial. ' : ''}La TIR tiene en cuenta cuándo hiciste cada aportación; se calcula desde que registraste la cuenta en la app.</p>`;
+      <div><div class="k">Próxima valoración</div><div class="v">${vi.next ? (vi.next <= today() ? '<span class="neg">Ya toca</span>' : fmtShort(vi.next)) : '—'}</div></div></div>
+      <p class="hint" style="margin:8px 0 0">La ganancia solo cambia cuando actualizas el valor (${valFreq(a).label.toLowerCase()}); las aportaciones de en medio suman al capital, no a la ganancia. ${tir === null ? 'La TIR aparece con al menos 3 meses de historial.' : 'La TIR tiene en cuenta cuándo hiciste cada aportación.'}</p>`;
   }
   h += '</section>';
   if (a.kind === 'robo' || a.kind === 'pension') {
@@ -344,6 +348,14 @@ function viewAccount(a) {
       Límite general: 1.500 € al año entre todos tus planes individuales; hasta 10.000 € con un plan de empleo de tu empresa. La aportación de la empresa regístrala como <em>Ingreso → Aportación empresa</em> en esta cuenta.</p>
       <div class="btn-row" style="margin-top:10px"><button class="btn small secondary" data-action="new-mov-pension" data-id="${a.id}">Hacer aportación</button></div></section>`;
   }
+  if (a.kind === 'inversion' || a.kind === 'robo') {
+    const y = new Date().getFullYear();
+    const n = S.movements.filter((m) => (m.type === 'transfer' && m.toAccountId === a.id) || (m.type === 'income' && m.accountId === a.id)).length;
+    h += `<section class="card"><h2>Aportaciones</h2><div class="stats">
+      <div><div class="k">Este año</div><div class="v">${money(contributedInYear(a.id, y))}</div></div>
+      <div><div class="k">Total aportado</div><div class="v">${money(b.contributed)}</div></div>
+      <div><div class="k">Nº aportaciones</div><div class="v">${n}</div></div></div></section>`;
+  }
   if (isInvest(a)) h += `<section class="card"><h2>Evolución</h2>${chartValueVsContributed('chart-acc', investSeries(new Set([a.id])))}</section>`;
   if (a.kind === 'deposito') {
     const days = a.maturityDate ? daysBetween(today(), a.maturityDate) : null;
@@ -356,7 +368,7 @@ function viewAccount(a) {
       ${a.maturityDate && !a.archived ? `<div class="btn-row" style="margin-top:10px"><button class="btn small secondary" data-action="maturity" data-id="${a.id}">Gestionar vencimiento</button></div>` : ''}</section>`;
   }
   h += `<div class="btn-row" style="margin:0 0 12px">
-    <button class="btn" data-action="new-mov-account" data-id="${a.id}">+ Movimiento</button>
+    ${isInvest(a) ? `<button class="btn" data-action="new-contribution" data-id="${a.id}">+ Aportación</button>` : `<button class="btn" data-action="new-mov-account" data-id="${a.id}">+ Movimiento</button>`}
     <button class="btn secondary" data-action="set-balance" data-id="${a.id}">${isInvest(a) ? 'Actualizar valor' : 'Ajustar saldo'}</button>
     <button class="btn ghost" data-action="edit-account" data-id="${a.id}">Editar</button></div>`;
   const recs = S.recurring.filter((r) => r.accountId === a.id || r.toAccountId === a.id);
@@ -566,6 +578,23 @@ function pensionAlerts() {
     .map((a) => ({ a, done: contributedInYear(a.id, y), limit: pensionLimit(a) }))
     .filter((x) => x.done < x.limit);
 }
+/** Datos de la última valoración real y lo aportado (neto) después de ella. */
+function valuationInfo(a) {
+  const sets = S.movements.filter((m) => m.accountId === a.id && m.type === 'set').sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : (x.createdAt || 0) - (y.createdAt || 0)));
+  const lastSet = sets[sets.length - 1];
+  const lastDate = lastSet ? lastSet.date : a.initialDate || '';
+  const lastValue = lastSet ? +lastSet.amount : +a.initialBalance || 0;
+  let since = 0;
+  for (const m of S.movements) {
+    if (!(m.date > lastDate || (m.date === lastDate && lastSet && (m.createdAt || 0) > (lastSet.createdAt || 0)))) continue;
+    const amt = +m.amount || 0;
+    if (m.type === 'transfer') { if (m.toAccountId === a.id) since += amt; else if (m.accountId === a.id) since -= amt; }
+    else if (m.type === 'income' && m.accountId === a.id) since += amt;
+    else if (m.type === 'expense' && m.accountId === a.id) since -= amt;
+  }
+  const next = lastDate ? toISO(new Date(parseISO(lastDate).getTime() + valFreq(a).days * 86400000)) : null;
+  return { lastDate, lastValue: round2(lastValue), since: round2(since), next };
+}
 const lastValueUpdate = (a) => S.movements.filter((m) => m.accountId === a.id && m.type === 'set').reduce((d, m) => (m.date > d ? m.date : d), a.initialDate || '');
 
 
@@ -614,7 +643,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v1.1</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v1.2</p>`;
 }
 
 function recRow(r) {
@@ -690,7 +719,7 @@ function openMovementForm({ movement = null, preset = {}, fromRecurring = null }
     <p class="err" hidden></p>
     <div class="actions">${editing ? '<button type="button" class="btn danger" data-del>Eliminar</button>' : ''}<span class="spacer"></span>
       <button type="button" class="btn ghost" data-close>Cancelar</button><button class="btn">Guardar</button></div></form>`;
-  openSheet(editing ? 'Editar movimiento' : fromRecurring ? `Confirmar: ${fromRecurring.name}` : 'Nuevo movimiento', body, (root) => {
+  openSheet(editing ? 'Editar movimiento' : fromRecurring ? `Confirmar: ${fromRecurring.name}` : m.type === 'set' ? (acc(m.accountId) && isInvest(acc(m.accountId)) ? 'Actualizar valor' : 'Ajustar saldo') : m.type === 'transfer' && m.toAccountId && isInvest(acc(m.toAccountId) || {}) ? 'Nueva aportación' : 'Nuevo movimiento', body, (root) => {
     const f = $('#f-mov', root);
     const sync = () => {
       const t = f.type.value;
@@ -698,7 +727,12 @@ function openMovementForm({ movement = null, preset = {}, fromRecurring = null }
       $$('.seg button', f).forEach((b) => b.classList.toggle('on', b.dataset.type === t));
       $('[data-amount-label]', f).textContent = t === 'set' ? 'Saldo / valor actual real (€)' : 'Importe (€)';
       $('[data-acc-label]', f).textContent = t === 'transfer' ? 'Desde' : 'Cuenta';
-      if (t === 'set') $('[data-current]', f).textContent = `Saldo que calcula la app: ${money(bal[f.accountId.value]?.balance || 0)}. Escribe el saldo real y la diferencia se registrará como ajuste (o como ganancia/pérdida si es inversión).`;
+      if (t === 'set') {
+        const ca = acc(f.accountId.value);
+        $('[data-current]', f).textContent = ca && isInvest(ca)
+          ? `Valor estimado ahora: ${money(bal[ca.id]?.balance || 0)} (última valoración + aportaciones). Escribe el valor real que te indique tu entidad: la diferencia es tu ganancia o pérdida del periodo.`
+          : `Saldo que calcula la app: ${money(bal[f.accountId.value]?.balance || 0)}. Escribe el saldo real y la diferencia se registrará como ajuste.`;
+      }
     };
     $$('.seg button', f).forEach((b) => b.addEventListener('click', () => { f.type.value = b.dataset.type; sync(); f.amount.focus(); }));
     f.accountId.addEventListener('change', sync);
@@ -752,7 +786,9 @@ function openAccountForm(a = null) {
       <label><span>Comisión total anual (%)</span><input name="feePct" inputmode="decimal" placeholder="0,6" value="${amountInput(x.feePct)}"></label></div>
       <label><span>% en renta variable (el resto, renta fija)</span><input name="equityPct" type="number" min="0" max="100" step="1" placeholder="Ej. 75" value="${x.equityPct ?? ''}"></label>
       <p class="hint">Consejo: crea también la aportación automática en Más → Fijos y automáticos.</p></div>
-    <div data-kind="inversion robo">
+    <div data-kind="inversion robo pension">
+      <label><span>Actualizar el valor</span><select name="valuationFreq">${Object.entries(VAL_FREQS).map(([k, v]) => `<option value="${k}" ${(x.valuationFreq || 'quarterly') === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
+      <p class="hint">Solo te avisaré cuando toque. Entre valoraciones, basta con apuntar las aportaciones.</p>
       <label><span>Capital aportado hasta ahora (€, opcional)</span><input name="initialContributed" inputmode="decimal" placeholder="Si lo dejas vacío, = saldo inicial" value="${amountInput(x.initialContributed)}"></label>
       <p class="hint">Sirve para calcular la rentabilidad: si tu fondo vale 5.200 € pero metiste 5.000 €, pon 5.000.</p></div>
     <div data-kind="deposito">
@@ -784,6 +820,7 @@ function openAccountForm(a = null) {
       const data = { name: f.name.value.trim(), kind, available: f.available.checked, initialBalance: round2(ib), initialDate: f.initialDate.value || today() };
       const ic = f.initialContributed.value.trim();
       data.initialContributed = INVEST_KINDS.includes(kind) && ic ? round2(parseAmount(ic)) : null;
+      data.valuationFreq = INVEST_KINDS.includes(kind) ? f.valuationFreq.value : null;
       if (kind === 'pension') {
         const lim = f.annualLimit.value.trim() ? parseAmount(f.annualLimit.value) : null;
         Object.assign(data, { pensionType: f.pensionType.value, annualLimit: Number.isFinite(lim) && lim > 0 ? lim : null });
@@ -935,6 +972,7 @@ document.addEventListener('click', async (e) => {
     case 'back': nav = { tab: nav.tab }; render(); break;
     case 'new-mov': openMovementForm({ preset: nav.accountId ? { accountId: nav.accountId } : {} }); break;
     case 'new-mov-account': openMovementForm({ preset: { accountId: id } }); break;
+    case 'new-contribution': openMovementForm({ preset: { type: 'transfer', toAccountId: id, accountId: accountsSorted().find((a) => a.kind === 'corriente')?.id, note: `Aportación ${acc(id)?.name || ''}`.trim() } }); break;
     case 'new-mov-pension': openMovementForm({ preset: { type: 'transfer', toAccountId: id, accountId: accountsSorted().find((a) => a.kind === 'corriente')?.id, note: 'Aportación plan de pensiones' } }); break;
     case 'set-balance': openMovementForm({ preset: { accountId: id, type: 'set' } }); break;
     case 'edit-mov': { const m = S.movements.find((x) => x.id === id); if (m) openMovementForm({ movement: m }); break; }
