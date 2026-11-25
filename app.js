@@ -11,7 +11,7 @@ const eurFmt = (() => {
 })();
 const money = (n) => eurFmt.format(Math.abs(n) < 0.005 ? 0 : n || 0);
 const signed = (n) => (n > 0 ? '+' : n < 0 ? '−' : '') + eurFmt.format(Math.abs(n));
-const pct = (n) => (n > 0 ? '+' : '') + n.toLocaleString('es-ES', { maximumFractionDigits: 2 }) + ' %';
+const pct = (n) => { const r = Math.round(n * 100) / 100 || 0; return (r > 0 ? '+' : '') + r.toLocaleString('es-ES', { maximumFractionDigits: 2 }) + ' %'; };
 const round2 = (n) => Math.round(n * 100) / 100;
 const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const parseISO = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
@@ -194,13 +194,15 @@ function estimatedInterest(a, principal) {
 // ═════════════════════════ Render principal ═════════════════════════
 function render() {
   const view = $('#view');
-  $$('#tabbar [data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === nav.tab));
+  const activeTab = nav.tab === 'accounts' ? (nav.back?.tab || 'home') : nav.tab;
+  $$('#tabbar [data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === activeTab));
   if (!store.isReady()) { view.innerHTML = '<div class="loading">Cargando…</div>'; return; }
   let title = 'Mis Finanzas', back = false, html = '';
   if (nav.tab === 'home') html = viewHome();
-  else if (nav.tab === 'accounts' && nav.accountId) { const a = acc(nav.accountId); if (!a) { nav = { tab: 'accounts' }; return render(); } title = a.name; back = true; html = viewAccount(a); }
-  else if (nav.tab === 'accounts') { title = 'Cuentas'; html = viewAccounts(); }
-  else if (nav.tab === 'summary') { title = 'Resumen'; html = viewSummary(); }
+  else if (nav.tab === 'accounts' && nav.accountId) { const a = acc(nav.accountId); if (!a) { nav = { tab: 'home' }; return render(); } title = a.name; back = true; html = withChartWidth(wideCharts() ? 680 : 340, () => viewAccount(a)); }
+  else if (nav.tab === 'accounts' || (nav.tab === 'more' && nav.sub === 'accounts')) { nav = { tab: 'more', sub: 'accounts' }; title = 'Todas las cuentas'; back = true; html = viewAccounts(); }
+  else if (nav.tab === 'cuentas') { title = 'Cuentas'; html = withChartWidth(wideCharts() ? 680 : 340, viewCuentas); }
+  else if (nav.tab === 'inversiones') { title = 'Inversiones'; html = withChartWidth(wideCharts() ? 680 : 340, viewInversiones); }
   else if (nav.tab === 'more' && nav.sub === 'recurring') { title = 'Fijos y automáticos'; back = true; html = viewRecurring(); }
   else if (nav.tab === 'more' && nav.sub === 'movements') { title = 'Todos los movimientos'; back = true; html = viewAllMovements(); }
   else if (nav.tab === 'more') { title = 'Más'; html = viewMore(); }
@@ -478,32 +480,6 @@ function flowsCard(a) {
     <p class="hint" style="margin:8px 0 0">Incluye todo el historial de traspasos que hayas apuntado, también los anteriores al saldo inicial.</p></section>`;
 }
 
-// ─── Resumen ───
-function viewSummary() {
-  const { y, m } = summaryMonth;
-  const ms = monthStats(y, m);
-  const cats = Object.entries(ms.byCat).sort((a, b) => b[1] - a[1]);
-  const max = cats.length ? cats[0][1] : 1;
-  let h = `<div class="month-nav"><button data-action="month-prev" aria-label="Mes anterior">‹</button><strong>${monthLabel(y, m)}</strong><button data-action="month-next" aria-label="Mes siguiente">›</button></div>
-    <section class="card"><div class="stats">
-      <div><div class="k">Ingresos</div><div class="v pos">${money(ms.income)}</div></div>
-      <div><div class="k">Gastos</div><div class="v neg">${money(ms.expenses)}</div></div>
-      <div><div class="k">Ahorro</div><div class="v">${money(ms.saved)}</div></div>
-    </div>
-    <div class="stats" style="margin-top:12px">
-      <div><div class="k">Gastos fijos</div><div class="v">${money(ms.fixed)}</div></div>
-      <div><div class="k">Gastos extra</div><div class="v">${money(ms.extra)}</div></div>
-      <div><div class="k">Tasa de ahorro</div><div class="v">${ms.rate === null ? '—' : Math.round(ms.rate) + ' %'}</div></div>
-    </div>
-    ${ms.yields ? `<p class="hint" style="margin:12px 0 0">Rendimientos cobrados este mes: <strong class="pos">${money(ms.yields)}</strong></p>` : ''}</section>
-    <section class="card"><h2>Gastos por categoría</h2>
-    ${cats.length ? cats.map(([c, v]) => `<div class="catbar"><div class="top"><span>${esc(c)}</span><span>${money(v)} <span class="muted">${Math.round((v / ms.expenses) * 100)}%</span></span></div>
-      <div class="track"><div class="fill" style="width:${Math.max(2, (v / max) * 100)}%"></div></div></div>`).join('') : '<div class="empty">Sin gastos este mes.</div>'}</section>`;
-  h += `<section class="card"><h2>Evolución del patrimonio</h2>${chartPatrimonio()}</section>`;
-  h += viewInvestOverview();
-  return h;
-}
-
 function patrimonioSeries() {
   const now = new Date(); const pts = [];
   for (let i = 11; i >= 0; i--) {
@@ -511,7 +487,7 @@ function patrimonioSeries() {
     const y = d.getFullYear(), m = d.getMonth();
     const until = i === 0 ? today() : endOfMonth(y, m);
     const t = totals(computeBalances(until));
-    pts.push({ label: d.toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: monthLabel(y, m), v: t.total });
+    pts.push({ label: d.toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: monthLabel(y, m), v: t.total, a: t.avail, l: t.locked });
   }
   // Descarta los meses anteriores a la primera cuenta
   const first = S.accounts.reduce((min, a) => (a.initialDate && a.initialDate < min ? a.initialDate : min), today());
@@ -523,41 +499,71 @@ function patrimonioSeries() {
 const CHARTS = {};
 const niceCeil = (v) => { if (v <= 0) return 0; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; };
 const shortNum = (v) => (Math.abs(v) >= 1000 ? (v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 }) + 'k' : String(Math.round(v)));
-const CW = 340, CH = 170, PL = 44, PB = 22, PT = 8;
+let CW = 340; const CH = 170, PL = 44, PB = 22, PT = 8;
+/** Ancho del lienzo de los gráficos: en pantallas anchas, más ancho para que no salgan gigantes. */
+const wideCharts = () => window.innerWidth >= 900;
+function withChartWidth(w, fn) { const prev = CW; CW = w; try { return fn(); } finally { CW = prev; } }
+
+/** Barra con extremo superior redondeado (4px), anclada a la base. */
+function barPath(x, w, yBase, yTop, round) {
+  const h = Math.max(0, yBase - yTop); if (h <= 0) return '';
+  const r = round ? Math.min(4, h, w / 2) : 0;
+  return `M${x},${yBase} V${yTop + r} Q${x},${yTop} ${x + r},${yTop} H${x + w - r} Q${x + w},${yTop} ${x + w},${yTop + r} V${yBase} Z`;
+}
+
+/**
+ * Gráfico de barras mensual. series: [{ key, label, cls }]
+ * mode: 'single' | 'stack' (apiladas, la última arriba) | 'group' (una al lado de otra)
+ */
+function chartBars(id, pts, series, mode, aria, tipFmt) {
+  if (!pts.length) return '<div class="empty">Aún no hay datos.</div>';
+  const tot = (p) => (mode === 'stack' ? series.reduce((s, se) => s + Math.max(0, p[se.key]), 0) : Math.max(...series.map((se) => p[se.key])));
+  const top = niceCeil(Math.max(...pts.map(tot), 0)) || 1;
+  const yS = (v) => PT + (CH - PT - PB) * (1 - v / top);
+  const n = pts.length, slot = (CW - PL) / n;
+  const groupW = Math.min(mode === 'group' ? 26 : 22, slot * 0.66);
+  let svg = `<svg viewBox="0 0 ${CW} ${CH}" role="img" aria-label="${esc(aria)}">`;
+  for (const tv of [0, top / 2, top]) svg += `<line class="grid" x1="${PL}" x2="${CW}" y1="${yS(tv)}" y2="${yS(tv)}"/><text class="axis" x="${PL - 6}" y="${yS(tv) + 4}" text-anchor="end">${shortNum(tv)}</text>`;
+  const step = n > 6 ? 2 : 1;
+  pts.forEach((p, i) => {
+    const x0 = PL + slot * i + (slot - groupW) / 2;
+    if (mode === 'group') {
+      const bw = (groupW - 2 * (series.length - 1)) / series.length;
+      series.forEach((se, k) => { svg += `<path class="bar ${se.cls}" data-i="${i}" d="${barPath(x0 + k * (bw + 2), bw, yS(0), yS(Math.max(0, p[se.key])), true)}"/>`; });
+    } else {
+      let acc0 = 0;
+      const vis = series.filter((se) => Math.max(0, p[se.key]) > 0);
+      series.forEach((se) => {
+        const v = Math.max(0, p[se.key]); if (!v) return;
+        const isTop = se === vis[vis.length - 1];
+        // 2px de separación entre segmentos apilados
+        const yb = yS(acc0) - (acc0 > 0 ? 2 : 0), yt = yS(acc0 + v);
+        svg += `<path class="bar ${se.cls}" data-i="${i}" d="${barPath(x0, groupW, yb, Math.min(yt, yb), isTop)}"/>`;
+        acc0 += v;
+      });
+    }
+    svg += `<rect class="hit" data-i="${i}" data-x="${x0 + groupW / 2}" x="${PL + slot * i}" y="${PT}" width="${slot}" height="${CH - PT - PB}"/>`;
+    if (i % step === (n - 1) % step) svg += `<text class="axis" x="${x0 + groupW / 2}" y="${CH - 6}" text-anchor="middle">${esc(p.label)}</text>`;
+  });
+  svg += '</svg>';
+  CHARTS[id] = { type: 'bar', pts, tip: tipFmt, w: CW };
+  const legend = series.length > 1 ? `<div class="legend">${series.map((se) => `<span><i class="sw ${se.cls}"></i>${esc(se.label)}</span>`).join('')}</div>` : '';
+  const table = `<details><summary>Ver como tabla</summary><table class="data"><tr><td></td>${series.map((se) => `<td>${esc(se.label)}</td>`).join('')}</tr>${pts.map((p) => `<tr><td>${esc(p.full)}</td>${series.map((se) => `<td>${money(p[se.key])}</td>`).join('')}</tr>`).join('')}</table></details>`;
+  return `${legend}<div class="chart" data-chart="${id}">${svg}<div class="tip" hidden></div></div>${table}`;
+}
 
 function chartPatrimonio() {
   const pts = patrimonioSeries();
   if (!pts.length || !S.accounts.length) return '<div class="empty">Aún no hay datos.</div>';
-  const maxV = Math.max(...pts.map((p) => p.v), 0), minV = Math.min(...pts.map((p) => p.v), 0);
-  const top = niceCeil(maxV) || 1, bottom = minV < 0 ? -niceCeil(-minV) : 0;
-  const yS = (v) => PT + (CH - PT - PB) * (1 - (v - bottom) / (top - bottom));
-  const n = pts.length, slot = (CW - PL) / n, bw = Math.min(22, slot * 0.6);
-  let svg = `<svg viewBox="0 0 ${CW} ${CH}" role="img" aria-label="Patrimonio total a fin de cada mes">`;
-  const ticks = bottom < 0 ? [bottom, 0, top] : [0, top / 2, top];
-  for (const tv of ticks) svg += `<line class="grid" x1="${PL}" x2="${CW}" y1="${yS(tv)}" y2="${yS(tv)}"/><text class="axis" x="${PL - 6}" y="${yS(tv) + 4}" text-anchor="end">${shortNum(tv)}</text>`;
-  const step = n > 6 ? 2 : 1;
-  pts.forEach((p, i) => {
-    const x = PL + slot * i + (slot - bw) / 2;
-    const y0 = yS(0), y1 = yS(p.v);
-    const yTop = Math.min(y0, y1), h = Math.max(1, Math.abs(y1 - y0));
-    const r = Math.min(4, h, bw / 2);
-    const path = p.v >= 0
-      ? `M${x},${y0} V${yTop + r} Q${x},${yTop} ${x + r},${yTop} H${x + bw - r} Q${x + bw},${yTop} ${x + bw},${yTop + r} V${y0} Z`
-      : `M${x},${y0} V${yTop + h - r} Q${x},${yTop + h} ${x + r},${yTop + h} H${x + bw - r} Q${x + bw},${yTop + h} ${x + bw},${yTop + h - r} V${y0} Z`;
-    svg += `<path class="bar" data-i="${i}" d="${path}"/>`;
-    svg += `<rect class="hit" data-i="${i}" data-x="${x + bw / 2}" x="${PL + slot * i}" y="${PT}" width="${slot}" height="${CH - PT - PB}"/>`;
-    if (i % step === (n - 1) % step) svg += `<text class="axis" x="${x + bw / 2}" y="${CH - 6}" text-anchor="middle">${esc(p.label)}</text>`;
-  });
-  svg += '</svg>';
-  CHARTS['chart-pat'] = { type: 'bar', pts, tip: (p) => `${esc(p.full)}<br><strong>${money(p.v)}</strong>` };
-  const table = `<details><summary>Ver como tabla</summary><table class="data">${pts.map((p) => `<tr><td>${esc(p.full)}</td><td>${money(p.v)}</td></tr>`).join('')}</table></details>`;
-  return `<div class="chart" data-chart="chart-pat">${svg}<div class="tip" hidden></div></div>${table}`;
+  return chartBars('chart-pat', pts, [{ key: 'a', label: 'Disponible', cls: 's1' }, { key: 'l', label: 'Inmovilizado', cls: 's2' }], 'stack',
+    'Patrimonio total a fin de cada mes, separado en disponible e inmovilizado',
+    (p) => `${esc(p.full)}<br>Total: <strong>${money(p.v)}</strong><br>Disponible: ${money(p.a)}<br>Inmovilizado: ${money(p.l)}`);
 }
 
 /** Línea de valor (azul) frente a capital aportado (gris discontinua). pts: [{label, full, v, c}] */
-function chartValueVsContributed(id, pts) {
+function chartValueVsContributed(id, pts, showC = true) {
   if (pts.length < 2) return '<div class="empty">El gráfico aparecerá cuando haya al menos dos meses de datos.</div>';
-  const maxV = Math.max(...pts.flatMap((p) => [p.v, p.c]), 0);
+  const maxV = Math.max(...pts.flatMap((p) => (showC ? [p.v, p.c] : [p.v])), 0);
   const top = niceCeil(maxV) || 1;
   const yS = (v) => PT + (CH - PT - PB) * (1 - v / top);
   const n = pts.length, xS = (i) => PL + 6 + ((CW - PL - 12) * i) / (n - 1);
@@ -565,7 +571,7 @@ function chartValueVsContributed(id, pts) {
   let svg = `<svg viewBox="0 0 ${CW} ${CH}" role="img" aria-label="Valor de la inversión frente al capital aportado">`;
   for (const tv of [0, top / 2, top]) svg += `<line class="grid" x1="${PL}" x2="${CW}" y1="${yS(tv)}" y2="${yS(tv)}"/><text class="axis" x="${PL - 6}" y="${yS(tv) + 4}" text-anchor="end">${shortNum(tv)}</text>`;
   svg += `<line class="xh" x1="0" x2="0" y1="${PT}" y2="${CH - PB}" visibility="hidden"/>`;
-  svg += `<path class="ln-c" d="${line('c')}"/><path class="ln-v" d="${line('v')}"/>`;
+  svg += `${showC ? `<path class="ln-c" d="${line('c')}"/>` : ''}<path class="ln-v" d="${line('v')}"/>`;
   const last = pts[n - 1];
   svg += `<circle class="dot" cx="${xS(n - 1)}" cy="${yS(Math.max(0, last.v))}" r="4"/>`;
   svg += `<circle class="dot hov" cx="0" cy="0" r="4" visibility="hidden"/>`;
@@ -576,9 +582,9 @@ function chartValueVsContributed(id, pts) {
     if ((n - 1 - i) % every === 0) svg += `<text class="axis" x="${xS(i)}" y="${CH - 6}" text-anchor="middle">${esc(p.label)}</text>`;
   });
   svg += '</svg>';
-  CHARTS[id] = { type: 'line', pts, tip: (p) => `${esc(p.full)}<br>Valor: <strong>${money(p.v)}</strong><br>Aportado: ${money(p.c)}<br>Ganancia: ${signed(p.v - p.c)}` };
-  const legend = '<div class="legend"><span><i class="lg-v"></i>Valor</span><span><i class="lg-c"></i>Capital aportado</span></div>';
-  const table = `<details><summary>Ver como tabla</summary><table class="data"><tr><td></td><td>Valor</td><td>Aportado</td></tr>${pts.map((p) => `<tr><td>${esc(p.full)}</td><td>${money(p.v)}</td><td>${money(p.c)}</td></tr>`).join('')}</table></details>`;
+  CHARTS[id] = { type: 'line', w: CW, pts, tip: (p) => (showC ? `${esc(p.full)}<br>Valor: <strong>${money(p.v)}</strong><br>Aportado: ${money(p.c)}<br>Ganancia: ${signed(p.v - p.c)}` : `${esc(p.full)}<br>Saldo: <strong>${money(p.v)}</strong>`) };
+  const legend = showC ? '<div class="legend"><span><i class="lg-v"></i>Valor</span><span><i class="lg-c"></i>Capital aportado</span></div>' : '';
+  const table = `<details><summary>Ver como tabla</summary><table class="data"><tr><td></td><td>${showC ? 'Valor' : 'Saldo'}</td>${showC ? '<td>Aportado</td>' : ''}</tr>${pts.map((p) => `<tr><td>${esc(p.full)}</td><td>${money(p.v)}</td>${showC ? `<td>${money(p.c)}</td>` : ''}</tr>`).join('')}</table></details>`;
   return `${legend}<div class="chart" data-chart="${id}">${svg}<div class="tip" hidden></div></div>${table}`;
 }
 
@@ -588,7 +594,7 @@ function bindCharts() {
     const tip = $('.tip', box), svg = $('svg', box);
     const show = (hit) => {
       const i = +hit.dataset.i, p = cfg.pts[i];
-      const scale = svg.getBoundingClientRect().width / CW;
+      const scale = svg.getBoundingClientRect().width / (cfg.w || CW);
       let anchorY = PT;
       if (cfg.type === 'bar') $$('.bar', box).forEach((b) => b.classList.toggle('hl', +b.dataset.i === i));
       else {
@@ -708,36 +714,121 @@ function valuationInfo(a) {
 const lastValueUpdate = (a) => S.movements.filter((m) => m.accountId === a.id && m.type === 'set').reduce((d, m) => (m.date > d ? m.date : d), a.initialDate || '');
 
 
-function viewInvestOverview() {
-  const invs = accountsSorted().filter((a) => isInvest(a) || a.kind === 'deposito');
-  if (!invs.length) return '';
+// ─── Pestaña Cuentas: patrimonio, el mes, ingresos/gastos y cada cuenta ───
+let cuentaEvo = null;
+function incomeExpenseSeries() {
+  const now = new Date(), pts = [];
+  const first = S.accounts.reduce((min, a) => (a.initialDate && a.initialDate < min ? a.initialDate : min), today()).slice(0, 7);
+  const firstMov = S.movements.reduce((min, m) => (m.date < min ? m.date : min), today()).slice(0, 7);
+  const start = first < firstMov ? first : firstMov;
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1), y = d.getFullYear(), m = d.getMonth();
+    if (monthKey(y, m) < start) continue;
+    const ms = monthStats(y, m);
+    pts.push({ label: d.toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: monthLabel(y, m), i: round2(ms.income), g: round2(ms.expenses) });
+  }
+  return pts;
+}
+
+function viewCuentas() {
+  if (!S.accounts.length) return '<div class="card empty"><p>Crea tus cuentas en Inicio para ver aquí su evolución.</p></div>';
+  const { y, m } = summaryMonth;
+  const ms = monthStats(y, m);
+  const cats = Object.entries(ms.byCat).sort((a, b) => b[1] - a[1]);
+  const max = cats.length ? cats[0][1] : 1;
+  let h = `<section class="card"><h2>Patrimonio total · fin de cada mes</h2>${chartPatrimonio()}</section>`;
+  h += `<section class="card"><div class="month-nav"><button data-action="month-prev" aria-label="Mes anterior">‹</button><strong>${monthLabel(y, m)}</strong><button data-action="month-next" aria-label="Mes siguiente">›</button></div>
+    <div class="stats">
+      <div><div class="k">Ingresos</div><div class="v pos">${money(ms.income)}</div></div>
+      <div><div class="k">Gastos</div><div class="v neg">${money(ms.expenses)}</div></div>
+      <div><div class="k">Ahorro</div><div class="v">${money(ms.saved)}</div></div></div>
+    <div class="stats" style="margin-top:12px">
+      <div><div class="k">Gastos fijos</div><div class="v">${money(ms.fixed)}</div></div>
+      <div><div class="k">Gastos extra</div><div class="v">${money(ms.extra)}</div></div>
+      <div><div class="k">Tasa de ahorro</div><div class="v">${ms.rate === null ? '—' : Math.round(ms.rate) + ' %'}</div></div></div>
+    ${ms.yields ? `<p class="hint" style="margin:12px 0 0">Rendimientos cobrados este mes: <strong class="pos">${money(ms.yields)}</strong></p>` : ''}
+    <h2 style="margin-top:18px">Gastos por categoría</h2>
+    ${cats.length ? cats.map(([c, v]) => `<div class="catbar"><div class="top"><span>${esc(c)}</span><span>${money(v)} <span class="muted">${Math.round((v / ms.expenses) * 100)}%</span></span></div>
+      <div class="track"><div class="fill" style="width:${Math.max(2, (v / max) * 100)}%"></div></div></div>`).join('') : '<div class="empty">Sin gastos este mes.</div>'}</section>`;
+  h += `<section class="card"><h2>Ingresos y gastos · cada mes</h2>${chartBars('chart-ig', incomeExpenseSeries(), [{ key: 'i', label: 'Ingresos', cls: 's1' }, { key: 'g', label: 'Gastos', cls: 's2' }], 'group',
+    'Ingresos y gastos de cada mes', (p) => `${esc(p.full)}<br>Ingresos: <strong>${money(p.i)}</strong><br>Gastos: <strong>${money(p.g)}</strong><br>Ahorro: ${signed(p.i - p.g)}`)}
+    <p class="hint" style="margin:8px 0 0">No cuenta los traspasos entre tus cuentas ni el dinero marcado como "Desde otra cuenta mía".</p></section>`;
+  const list = accountsSorted().filter((a) => !isSavingsAcc(a));
+  if (list.length) {
+    if (!cuentaEvo || !list.some((a) => a.id === cuentaEvo)) cuentaEvo = list[0].id;
+    h += `<section class="card"><h2>Evolución de cada cuenta</h2>
+      <div class="seg" style="flex-wrap:wrap">${list.map((x) => `<button type="button" class="${x.id === cuentaEvo ? 'on' : ''}" data-action="cuenta-evo" data-id="${x.id}">${esc(x.name)}</button>`).join('')}</div>
+      ${chartValueVsContributed('chart-cta', investSeries(new Set([cuentaEvo])), false)}</section>`;
+  }
+  return h;
+}
+
+// ─── Pestaña Inversiones ───
+function contribSeries() {
+  const now = new Date(), pts = [];
+  const firstInv = S.movements.filter((m) => m.type === 'transfer' && isSavingsAcc(acc(m.toAccountId))).reduce((min, m) => (m.date < min ? m.date : min), today()).slice(0, 7);
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1), y = d.getFullYear(), m = d.getMonth();
+    if (monthKey(y, m) < firstInv) continue;
+    pts.push({ label: d.toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: monthLabel(y, m), v: round2(monthTransfers(y, m, 'contrib').reduce((s2, x) => s2 + (+x.amount || 0), 0)) });
+  }
+  return pts;
+}
+
+function viewInversiones() {
+  const invs = accountsSorted().filter(isSavingsAcc);
+  if (!invs.length) return '<div class="card empty"><p>Aún no tienes carteras, fondos, planes de pensiones ni depósitos.</p><button class="btn" data-action="new-account">Nueva cuenta</button></div>';
   const bal = computeBalances();
   let v = 0, c = 0, fees = 0;
   for (const a of invs) { v += bal[a.id].balance; c += bal[a.id].contributed; if (a.feePct) fees += bal[a.id].balance * a.feePct / 100; }
   const gain = v - c, ids = new Set(invs.map((a) => a.id)), tir = annualReturn(ids);
   const pctBase = invs.reduce((sum, a) => sum + bal[a.id].pctBase, 0);
-  const rows = invs.map((a) => {
-    const b = bal[a.id], t = isInvest(a) ? annualReturn(new Set([a.id])) : null;
-    return `<li class="row" data-action="open-account" data-id="${a.id}"><div class="row-icon">${KINDS[a.kind].icon}</div>
-      <div class="row-main"><div class="row-title">${esc(a.name)}</div><div class="row-sub">${money(b.balance)} · ${Math.round(v ? (b.balance / v) * 100 : 0)}% del total${t !== null ? ` · TIR ${pct(t)}` : ''}</div></div>
-      <div class="row-amt ${b.gain >= 0 ? 'pos' : 'neg'}">${signed(b.gain)}${b.gainPct !== null ? `<small>${pct(b.gainPct)}</small>` : ''}</div></li>`;
-  }).join('');
-  return `<section class="card"><h2>Inversiones (hoy)</h2><div class="stats">
+  let h = `<section class="card"><h2>Tus inversiones hoy</h2><div class="stats">
       <div><div class="k">Valor</div><div class="v">${money(v)}</div></div>
       <div><div class="k">Aportado</div><div class="v">${money(c)}</div></div>
       <div><div class="k">Ganancia</div><div class="v ${gain >= 0 ? 'pos' : 'neg'}">${signed(gain)}</div></div></div>
     <div class="stats" style="margin-top:12px">
       <div><div class="k">Rentabilidad</div><div class="v">${pctBase > 0 ? pct((gain / pctBase) * 100) : '—'}</div></div>
       <div><div class="k">TIR anual</div><div class="v">${tir === null ? '—' : pct(tir)}</div></div>
-      <div><div class="k">Comisiones/año</div><div class="v">${fees ? money(fees) : '—'}</div></div></div>
-    <ul class="list" style="margin-top:10px">${rows}</ul></section>
-    <section class="card"><h2>Evolución de tus inversiones</h2>${chartValueVsContributed('chart-inv', investSeries(ids))}</section>`;
+      <div><div class="k">Comisiones/año</div><div class="v">${fees ? money(fees) : '—'}</div></div></div></section>`;
+  h += `<section class="card"><h2>Todas juntas · valor y capital aportado</h2>${chartValueVsContributed('chart-inv', investSeries(ids))}</section>`;
+  // Una tarjeta por inversión
+  h += '<div class="inv-grid">' + invs.map((a) => {
+    const b = bal[a.id], t = isInvest(a) ? annualReturn(new Set([a.id])) : null;
+    const vi = isInvest(a) ? valuationInfo(a) : null;
+    const extra = a.kind === 'deposito'
+      ? (a.maturityDate ? `Vence ${fmtDate(a.maturityDate)}${a.tae ? ` · ${amountInput(a.tae)} % TAE` : ''}` : 'Depósito')
+      : `${t !== null ? `TIR ${pct(t)} · ` : ''}Próxima valoración ${vi && vi.next ? (vi.next <= today() ? 'ya' : fmtShort(vi.next)) : '—'}`;
+    return `<section class="card inv-card"><div class="inv-head k-${a.kind}">${kindIcon(a.kind)}<div class="grow"><div class="row-title">${esc(a.name)}</div><div class="row-sub">${esc(extra)}</div></div>
+        <div class="row-amt">${money(b.balance)}${showGain(a) && b.gain !== 0 ? `<small class="${b.gain >= 0 ? 'pos' : 'neg'}">${signed(b.gain)}${b.gainPct !== null ? ` (${pct(b.gainPct)})` : ''}</small>` : ''}</div></div>
+      ${withChartWidth(340, () => chartValueVsContributed(`chart-a-${a.id}`, investSeries(new Set([a.id]))))}
+      <button class="link" data-action="open-account" data-id="${a.id}" style="margin-top:8px">Ver detalle ›</button></section>`;
+  }).join('') + '</div>';
+  // Comparativa de rentabilidad
+  const maxP = Math.max(...invs.map((a) => Math.abs(bal[a.id].gainPct || 0)), 1);
+  h += `<section class="card"><h2>Comparativa de rentabilidad</h2>${invs.map((a) => {
+    const g = bal[a.id].gainPct || 0;
+    return `<div class="catbar"><div class="top"><span>${esc(a.name)}</span><span class="${g >= 0 ? 'pos' : 'neg'}">${signed(bal[a.id].gain)} · ${pct(g)}</span></div>
+      <div class="track"><div class="fill" style="width:${Math.max(2, (Math.abs(g) / maxP) * 100)}%;background:var(${g >= 0 ? '--pos' : '--neg'})"></div></div></div>`;
+  }).join('')}<p class="hint" style="margin:8px 0 0">Según la última valoración de cada una.</p></section>`;
+  // Reparto
+  h += `<section class="card"><h2>Reparto de lo invertido</h2>${invs.map((a) => {
+    const share = v > 0 ? (bal[a.id].balance / v) * 100 : 0;
+    return `<div class="catbar"><div class="top"><span>${esc(a.name)}</span><span>${money(bal[a.id].balance)} <span class="muted">${share.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %</span></span></div>
+      <div class="track"><div class="fill" style="width:${Math.max(1, share)}%"></div></div></div>`;
+  }).join('')}</section>`;
+  // Aportaciones por mes
+  h += `<section class="card"><h2>Aportaciones · cada mes</h2>${chartBars('chart-ap', contribSeries(), [{ key: 'v', label: 'Aportado', cls: 's1' }], 'single',
+    'Dinero aportado a inversiones y depósitos cada mes', (p) => `${esc(p.full)}<br>Aportado: <strong>${money(p.v)}</strong>`)}
+    <p class="hint" style="margin:8px 0 0">Dinero que pasa de tus cuentas normales a carteras, fondos, planes y depósitos.</p></section>`;
+  return h;
 }
 
 // ─── Más ───
 function viewMore() {
   const email = store.hasCloud ? store.currentEmail() : null;
   return `<section class="card"><ul class="list">
+      <li class="row" data-action="go-accounts"><div class="row-icon">🏦</div><div class="row-main"><div class="row-title">Todas las cuentas</div><div class="row-sub">Lista completa, incluidas las archivadas (${S.accounts.length})</div></div><div class="row-amt muted">›</div></li>
       <li class="row" data-action="go-recurring"><div class="row-icon">🔄</div><div class="row-main"><div class="row-title">Fijos y automáticos</div><div class="row-sub">Nómina, gastos fijos, aportaciones periódicas (${S.recurring.length})</div></div><div class="row-amt muted">›</div></li>
       <li class="row" data-action="all-movs"><div class="row-icon">📜</div><div class="row-main"><div class="row-title">Todos los movimientos</div><div class="row-sub">${S.movements.length} registrados</div></div><div class="row-amt muted">›</div></li>
     </ul></section>
@@ -754,7 +845,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v2.6</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v2.7</p>`;
 }
 
 function recRow(r) {
@@ -929,7 +1020,7 @@ function openAccountForm(a = null) {
     f.kind.addEventListener('change', () => sync(true)); sync(false);
     $('[data-del]', f)?.addEventListener('click', () => {
       if (hasMovs) { alert('Esta cuenta tiene movimientos. Puedes marcarla como "Archivada" para ocultarla sin perder el historial.'); return; }
-      if (confirm(`¿Eliminar la cuenta "${a.name}"?`)) { store.remove('accounts', a.id); closeSheet(); nav = { tab: 'accounts' }; render(); toast('Cuenta eliminada'); }
+      if (confirm(`¿Eliminar la cuenta "${a.name}"?`)) { store.remove('accounts', a.id); closeSheet(); nav = { tab: 'home' }; render(); toast('Cuenta eliminada'); }
     });
     f.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -960,7 +1051,7 @@ function openAccountForm(a = null) {
         data.startDate = f.startDate.value || null; data.maturityDate = f.maturityDate.value || null;
       } else { data.tae = null; data.startDate = null; data.maturityDate = null; }
       if (editing) { data.archived = f.archived.checked; store.update('accounts', a.id, data); }
-      else { data.archived = false; const id = store.add('accounts', data); nav = { tab: 'accounts', accountId: id }; }
+      else { data.archived = false; const id = store.add('accounts', data); nav = { tab: 'accounts', accountId: id, back: { tab: 'home' } }; }
       closeSheet(); render(); toast(editing ? 'Cuenta guardada' : 'Cuenta creada');
     });
   });
@@ -1093,7 +1184,7 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-action]'); if (!el) return;
   const id = el.dataset.id;
   switch (el.dataset.action) {
-    case 'back': nav = { tab: nav.tab }; render(); break;
+    case 'back': nav = nav.back || (nav.tab === 'accounts' ? { tab: 'home' } : { tab: nav.tab }); render(); break;
     case 'new-mov': openMovementForm({ preset: nav.accountId ? { accountId: nav.accountId } : {} }); break;
     case 'new-mov-account': openMovementForm({ preset: { accountId: id } }); break;
     case 'new-contribution': openMovementForm({ preset: { type: 'transfer', toAccountId: id, accountId: accountsSorted().find((a) => a.kind === 'corriente')?.id, note: `Aportación ${acc(id)?.name || ''}`.trim() } }); break;
@@ -1102,14 +1193,16 @@ document.addEventListener('click', async (e) => {
     case 'edit-mov': { const m = S.movements.find((x) => x.id === id); if (m) openMovementForm({ movement: m }); break; }
     case 'new-account': openAccountForm(); break;
     case 'edit-account': openAccountForm(acc(id)); break;
-    case 'open-account': nav = { tab: 'accounts', accountId: id }; render(); window.scrollTo(0, 0); break;
+    case 'open-account': nav = { tab: 'accounts', accountId: id, back: nav.tab === 'accounts' ? nav.back : { ...nav } }; render(); window.scrollTo(0, 0); break;
+    case 'go-accounts': nav = { tab: 'more', sub: 'accounts' }; render(); break;
+    case 'cuenta-evo': cuentaEvo = id; render(); break;
     case 'show-all-acc': nav = { ...nav, showAll: true }; render(); break;
     case 'fs-open': { const d = new Date(); flowSheet = { k: el.dataset.k, y: d.getFullYear(), m: d.getMonth() }; openFlowSheet(); break; }
     case 'fs-prev': flowSheet = flowSheet.m === 0 ? { ...flowSheet, y: flowSheet.y - 1, m: 11 } : { ...flowSheet, m: flowSheet.m - 1 }; openFlowSheet(); break;
     case 'fs-next': flowSheet = flowSheet.m === 11 ? { ...flowSheet, y: flowSheet.y + 1, m: 0 } : { ...flowSheet, m: flowSheet.m + 1 }; openFlowSheet(); break;
     case 'flow-period': flowPeriod = el.dataset.p; render(); break;
     case 'toggle-archived': showArchived = !showArchived; render(); break;
-    case 'go-summary': nav = { tab: 'summary' }; render(); break;
+    case 'go-summary': nav = { tab: 'cuentas' }; render(); break;
     case 'go-recurring': nav = { tab: 'more', sub: 'recurring' }; render(); break;
     case 'all-movs': nav = { tab: 'more', sub: 'movements' }; render(); window.scrollTo(0, 0); break;
     case 'new-rec': openRecurringForm(); break;

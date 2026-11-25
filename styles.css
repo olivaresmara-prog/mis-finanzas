@@ -215,3 +215,22 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 
 .init-bal { font-size: 18px; margin: 4px 4px 14px; }
 .init-bal strong { font-size: 20px; font-weight: 700; }
+
+/* Series de gráficos (paleta validada: azul / naranja) */
+.chart .bar.s1, .legend i.sw.s1 { fill: #257de0; border-color: #257de0; }
+.chart .bar.s2, .legend i.sw.s2 { fill: #f47230; border-color: #f47230; }
+.legend i.sw { width: 10px; height: 10px; border: 0; border-radius: 2px; background: currentColor; }
+.legend i.sw.s1 { background: #257de0; } .legend i.sw.s2 { background: #f47230; }
+@media (prefers-color-scheme: dark) {
+  .chart .bar.s1 { fill: #338ced; } .chart .bar.s2 { fill: #e76624; }
+  .legend i.sw.s1 { background: #338ced; } .legend i.sw.s2 { background: #e76624; }
+}
+.chart .bar.hl { opacity: .75; }
+/* Pestaña Inversiones */
+.inv-grid { display: grid; grid-template-columns: 1fr; gap: 0 14px; }
+@media (min-width: 900px) { .inv-grid { grid-template-columns: 1fr 1fr; } }
+.inv-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text); }
+.inv-head svg { color: var(--tf); background: var(--tb); border-radius: 10px; padding: 6px; width: 36px; height: 36px; flex: none; }
+.inv-head .row-amt small { display: block; }
+.inv-head .grow { flex: 1; min-width: 0; }
+.inv-head .row-title, .inv-head .row-sub { white-space: normal; }
