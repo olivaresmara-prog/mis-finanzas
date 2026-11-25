@@ -272,18 +272,20 @@ function movRow(m, ctxAccountId = null) {
     case 'income': title = m.note || m.category || 'Ingreso'; sub = m.category || ''; cls = 'pos'; amt = signed(a); break;
     case 'transfer':
       title = m.note || 'Traspaso'; sub = `${accName(m.accountId)} → ${accName(m.toAccountId)}`;
-      if (ctxAccountId === m.toAccountId) { cls = 'pos'; amt = signed(a); }
-      else if (ctxAccountId === m.accountId) { cls = 'neg'; amt = signed(-a); }
+      // Dentro de una cuenta, se indica claramente de dónde viene o hacia dónde va
+      if (ctxAccountId === m.toAccountId) { cls = 'pos'; amt = signed(a); sub = `Desde ${accName(m.accountId)}`; }
+      else if (ctxAccountId === m.accountId) { cls = 'neg'; amt = signed(-a); sub = `Hacia ${accName(m.toAccountId)}`; }
       else amt = money(a);
       break;
     case 'yield': title = m.note || 'Rendimiento'; sub = 'Intereses / rentabilidad'; cls = 'pos'; amt = signed(a); break;
     case 'set': title = m.note || 'Saldo actualizado'; sub = 'Actualización de saldo'; amt = `= ${money(a)}`; break;
   }
   const where = ctxAccountId || m.type === 'transfer' ? '' : ` · ${accName(m.accountId)}`;
-  if (ctxAccountId && !applies(ctxAccountId, m.date)) { cls = 'muted'; sub = 'No suma: anterior al saldo inicial' + (sub ? ' · ' + sub : ''); }
+  let badge = '';
+  if (ctxAccountId && !applies(ctxAccountId, m.date)) { cls = 'muted'; badge = ' <span class="badge" title="Anterior al saldo inicial de esta cuenta: no cambia su saldo">histórico</span>'; }
   return `<li class="row" data-action="edit-mov" data-id="${m.id}">
     <div class="row-icon">${T.icon}</div>
-    <div class="row-main"><div class="row-title">${esc(title)}</div><div class="row-sub">${fmtShort(m.date)}${sub ? ' · ' + esc(sub) : ''}${esc(where)}</div></div>
+    <div class="row-main"><div class="row-title">${esc(title)}${badge}</div><div class="row-sub">${fmtShort(m.date)}${sub ? ' · ' + esc(sub) : ''}${esc(where)}</div></div>
     <div class="row-amt ${cls}">${amt}</div></li>`;
 }
 
@@ -389,11 +391,44 @@ function viewAccount(a) {
     ${isInvest(a) ? `<button class="btn" data-action="new-contribution" data-id="${a.id}">+ Aportación</button>` : `<button class="btn" data-action="new-mov-account" data-id="${a.id}">+ Movimiento</button>`}
     <button class="btn secondary" data-action="set-balance" data-id="${a.id}">${isInvest(a) ? 'Actualizar valor' : 'Ajustar saldo'}</button>
     <button class="btn ghost" data-action="edit-account" data-id="${a.id}">Editar</button></div>`;
+  h += flowsCard(a);
   const recs = S.recurring.filter((r) => r.accountId === a.id || r.toAccountId === a.id);
   if (recs.length) h += `<section class="card"><h2>Fijos y automáticos</h2><ul class="list">${recs.map(recRow).join('')}</ul></section>`;
   h += `<section class="card"><h2>Movimientos</h2>${movs.length ? `<ul class="list">${movs.slice(0, nav.showAll ? undefined : 25).map((m) => movRow(m, a.id)).join('')}</ul>${!nav.showAll && movs.length > 25 ? `<button class="link" data-action="show-all-acc" style="margin-top:8px">Ver los ${movs.length} movimientos</button>` : ''}` : '<div class="empty">Sin movimientos todavía.</div>'}
-    <p class="hint" style="margin:10px 0 0">Saldo inicial: ${money(+a.initialBalance || 0)}${a.initialDate ? ` el ${fmtDate(a.initialDate)}` : ''}</p></section>`;
+    <p class="hint" style="margin:10px 0 0">Saldo inicial: ${money(+a.initialBalance || 0)}${a.initialDate ? ` el ${fmtDate(a.initialDate)}` : ''}${movs.some((m) => !applies(a.id, m.date)) ? '. Los marcados como <span class="badge">histórico</span> son anteriores a esa fecha: ya están incluidos en el saldo inicial y no lo cambian.' : ''}</p></section>`;
   return h;
+}
+
+// ─── Entradas y salidas por traspasos de una cuenta ───
+let flowPeriod = 'all';
+function flowsCard(a) {
+  const all = S.movements.filter((m) => m.type === 'transfer' && (m.accountId === a.id || m.toAccountId === a.id));
+  if (!all.length) return '';
+  const y = String(new Date().getFullYear()), mk = today().slice(0, 7);
+  const inPeriod = (m) => flowPeriod === 'all' || (flowPeriod === 'year' ? m.date.startsWith(y) : m.date.startsWith(mk));
+  const movs = all.filter(inPeriod);
+  const group = (list, key) => {
+    const g = {};
+    for (const m of list) { const id = m[key]; (g[id] ||= { total: 0, n: 0 }); g[id].total += +m.amount || 0; g[id].n++; }
+    return Object.entries(g).sort((x, z) => z[1].total - x[1].total);
+  };
+  const ins = group(movs.filter((m) => m.toAccountId === a.id), 'accountId');
+  const outs = group(movs.filter((m) => m.accountId === a.id), 'toAccountId');
+  const sum = (arr) => arr.reduce((s2, [, v]) => s2 + v.total, 0);
+  const rows = (arr, sign) => arr.map(([id, v]) => `<li class="row" data-action="open-account" data-id="${id}"><div class="row-icon">${KINDS[acc(id)?.kind]?.icon || '📁'}</div>
+      <div class="row-main"><div class="row-title">${esc(accName(id))}</div><div class="row-sub">${v.n} ${v.n === 1 ? 'traspaso' : 'traspasos'}</div></div>
+      <div class="row-amt ${sign > 0 ? 'pos' : 'neg'}">${signed(sign * v.total)}</div></li>`).join('');
+  const tIn = sum(ins), tOut = sum(outs);
+  const chip = (k, l) => `<button type="button" class="${flowPeriod === k ? 'on' : ''}" data-action="flow-period" data-p="${k}">${l}</button>`;
+  return `<section class="card"><h2>Traspasos</h2>
+    <div class="seg" style="margin-bottom:10px">${chip('all', 'Todo')}${chip('year', 'Este año')}${chip('month', 'Este mes')}</div>
+    <div class="stats"><div><div class="k">Entradas</div><div class="v pos">${money(tIn)}</div></div>
+      <div><div class="k">Salidas</div><div class="v neg">${money(tOut)}</div></div>
+      <div><div class="k">Neto</div><div class="v">${signed(tIn - tOut)}</div></div></div>
+    ${ins.length ? `<div class="group-title" style="margin:14px 0 2px"><span>Recibido de</span></div><ul class="list">${rows(ins, 1)}</ul>` : ''}
+    ${outs.length ? `<div class="group-title" style="margin:14px 0 2px"><span>Enviado a</span></div><ul class="list">${rows(outs, -1)}</ul>` : ''}
+    ${!ins.length && !outs.length ? '<div class="empty">Sin traspasos en este periodo.</div>' : ''}
+    <p class="hint" style="margin:8px 0 0">Incluye todo el historial de traspasos que hayas apuntado, también los anteriores al saldo inicial.</p></section>`;
 }
 
 // ─── Resumen ───
@@ -672,7 +707,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v1.5</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v1.6</p>`;
 }
 
 function recRow(r) {
@@ -1022,6 +1057,7 @@ document.addEventListener('click', async (e) => {
     case 'edit-account': openAccountForm(acc(id)); break;
     case 'open-account': nav = { tab: 'accounts', accountId: id }; render(); window.scrollTo(0, 0); break;
     case 'show-all-acc': nav = { ...nav, showAll: true }; render(); break;
+    case 'flow-period': flowPeriod = el.dataset.p; render(); break;
     case 'toggle-archived': showArchived = !showArchived; render(); break;
     case 'go-summary': nav = { tab: 'summary' }; render(); break;
     case 'go-recurring': nav = { tab: 'more', sub: 'recurring' }; render(); break;
