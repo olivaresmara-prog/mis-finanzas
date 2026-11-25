@@ -271,7 +271,8 @@ function viewHome() {
   }
 
   h += `<div class="tiles">${accountsSorted().map((a) => accountTile(a, bal[a.id])).join('')}
-    <button class="tile tile-add" data-action="new-account"><span>+ Nueva cuenta</span></button></div>`;
+</div>
+    <div class="add-row"><button class="btn secondary" data-action="new-account">+ Nueva cuenta</button></div>`;
   return h;
 }
 
@@ -758,7 +759,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v2.0</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v2.2</p>`;
 }
 
 function recRow(r) {
