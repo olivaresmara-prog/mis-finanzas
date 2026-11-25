@@ -264,7 +264,6 @@ function viewHome() {
   const flags = {};
   for (const { a, days } of alerts) flags[a.id] = days < 0 ? 'Vencido' : days === 0 ? 'Vence hoy' : `Vence en ${days} días`;
   for (const { a } of reminders) flags[a.id] = 'Toca valorar';
-  for (const { a, done, limit } of pensions) flags[a.id] = `Puedes aportar ${money(limit - done)}`;
   h += `<div class="tiles">${accountsSorted().map((a) => accountTile(a, bal[a.id], flags[a.id])).join('')}
 </div>
     <div class="add-row"><button class="btn secondary" data-action="new-account">+ Nueva cuenta</button></div>`;
@@ -754,7 +753,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v2.3</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v2.4</p>`;
 }
 
 function recRow(r) {
