@@ -219,8 +219,6 @@ function viewHome() {
   const bal = computeBalances(), t = totals(bal);
   const pend = pendingRecurring(), alerts = depositAlerts(bal), reminders = valueReminders(), pensions = pensionAlerts();
   const d = new Date(), ms = monthStats(d.getFullYear(), d.getMonth());
-  // En Inicio solo gastos, ingresos y rendimientos: los traspasos y aportaciones se ven dentro de cada cuenta
-  const recent = sortedMovements().reverse().filter((m) => ['expense', 'income', 'yield'].includes(m.type)).slice(0, 8);
 
   let h = `<section class="card hero">
     <div class="label">Patrimonio total</div>
@@ -269,8 +267,6 @@ function viewHome() {
       <div><div class="k">Ahorro</div><div class="v">${money(ms.saved)}${ms.rate !== null ? ` <small class="muted">${Math.round(ms.rate)}%</small>` : ''}</div></div>
     </div></section>`;
 
-  h += `<section class="card"><h2>Últimos gastos e ingresos <button class="link" data-action="all-movs">Ver todos</button></h2>
-    ${recent.length ? `<ul class="list">${recent.map((m) => movRow(m)).join('')}</ul>` : '<div class="empty">Aún no hay gastos ni ingresos. Pulsa <strong>+</strong> para añadir uno.</div>'}</section>`;
   return h;
 }
 
@@ -757,7 +753,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v1.8</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v1.9</p>`;
 }
 
 function recRow(r) {
