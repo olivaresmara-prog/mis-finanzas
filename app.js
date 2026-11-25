@@ -118,10 +118,15 @@ function computeBalances(until = null) {
       case 'set': if (A) A.balance = amt; break;
     }
   }
-  for (const r of Object.values(res)) {
+  for (const a of S.accounts) {
+    const r = res[a.id];
     r.balance = round2(r.balance); r.contributed = round2(r.contributed);
     r.gain = round2(r.balance - r.contributed);
-    r.gainPct = r.contributed > 0 ? (r.gain / r.contributed) * 100 : null;
+    // En carteras automatizadas el % se calcula como la entidad: sobre lo invertido, sin contar el efectivo
+    const ci = a.kind === 'robo' ? cashInfo(a, r.balance) : null;
+    r.cash = ci ? ci.cash : 0;
+    r.pctBase = round2(r.contributed - r.cash);
+    r.gainPct = r.pctBase > 0 ? (r.gain / r.pctBase) * 100 : null;
   }
   return res;
 }
@@ -338,7 +343,7 @@ function viewAccount(a) {
       <div><div class="k">Comisión anual</div><div class="v">${a.feePct ? amountInput(a.feePct) + ' %' : '—'}</div></div></div>
       ${fee !== null ? `<p class="hint" style="margin:10px 0 0">Al valor actual, las comisiones suponen unos <strong>${money(fee)} al año</strong> (${money(fee / 12)} al mes).</p>` : ''}
       ${ci ? `<div class="split" style="margin-top:12px">
-        <div><div class="k">Invertido</div><div class="v">${money(b.balance - ci.cash)}</div></div>
+        <div><div class="k">Fondos (valor actual)</div><div class="v">${money(b.balance - ci.cash)}</div></div>
         <div><div class="k">Efectivo sin invertir${ci.real ? '' : ' (estimado)'}</div><div class="v">${money(ci.cash)}</div></div></div>
         <p class="hint" style="margin:8px 0 0">${ci.real ? `Según tu última valoración (${fmtShort(ci.date)}).` : `Estimado con la regla de tu cartera: ${a.cashFixed ? money(+a.cashFixed) : ''}${a.cashFixed && a.cashPct ? ' + ' : ''}${a.cashPct ? amountInput(a.cashPct) + ' % del valor' : ''}. Al actualizar el valor puedes indicar el efectivo real.`}</p>` : ''}
       ${eq !== null ? `<div class="catbar" style="margin-top:14px"><div class="top"><span>Renta variable ${eq}%${ci ? ` · ${money((b.balance - ci.cash) * eq / 100)}` : ''}</span><span>Renta fija ${100 - eq}%${ci ? ` · ${money((b.balance - ci.cash) * (100 - eq) / 100)}` : ''}</span></div>
@@ -619,6 +624,7 @@ function viewInvestOverview() {
   let v = 0, c = 0, fees = 0;
   for (const a of invs) { v += bal[a.id].balance; c += bal[a.id].contributed; if (a.feePct) fees += bal[a.id].balance * a.feePct / 100; }
   const gain = v - c, ids = new Set(invs.map((a) => a.id)), tir = annualReturn(ids);
+  const pctBase = invs.reduce((sum, a) => sum + bal[a.id].pctBase, 0);
   const rows = invs.map((a) => {
     const b = bal[a.id], t = isInvest(a) ? annualReturn(new Set([a.id])) : null;
     return `<li class="row" data-action="open-account" data-id="${a.id}"><div class="row-icon">${KINDS[a.kind].icon}</div>
@@ -630,7 +636,7 @@ function viewInvestOverview() {
       <div><div class="k">Aportado</div><div class="v">${money(c)}</div></div>
       <div><div class="k">Ganancia</div><div class="v ${gain >= 0 ? 'pos' : 'neg'}">${signed(gain)}</div></div></div>
     <div class="stats" style="margin-top:12px">
-      <div><div class="k">Rentabilidad</div><div class="v">${c > 0 ? pct((gain / c) * 100) : '—'}</div></div>
+      <div><div class="k">Rentabilidad</div><div class="v">${pctBase > 0 ? pct((gain / pctBase) * 100) : '—'}</div></div>
       <div><div class="k">TIR anual</div><div class="v">${tir === null ? '—' : pct(tir)}</div></div>
       <div><div class="k">Comisiones/año</div><div class="v">${fees ? money(fees) : '—'}</div></div></div>
     <ul class="list" style="margin-top:10px">${rows}</ul></section>
@@ -657,7 +663,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v1.3</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v1.4</p>`;
 }
 
 function recRow(r) {
@@ -792,7 +798,7 @@ function openAccountForm(a = null) {
     <label><span>Nombre</span><input name="name" value="${esc(x.name || '')}" placeholder="Ej. Nómina BBVA, Depósito 12m…" required></label>
     <label><span>Tipo</span><select name="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${x.kind === k ? 'selected' : ''}>${v.icon} ${v.label}</option>`).join('')}</select></label>
     <label class="check"><input type="checkbox" name="available" ${x.available ? 'checked' : ''}> Dinero disponible (puedo usarlo ya)</label>
-    <div class="two"><label class="amount"><span>Saldo inicial (€)</span><input name="initialBalance" inputmode="decimal" placeholder="0,00" value="${amountInput(x.initialBalance)}"></label>
+    <div class="two"><label class="amount"><span data-ib-label>Saldo inicial (€)</span><input name="initialBalance" inputmode="decimal" placeholder="0,00" value="${amountInput(x.initialBalance)}"></label>
     <label><span>A fecha de</span><input type="date" name="initialDate" value="${x.initialDate || today()}"></label></div>
     <div data-kind="pension">
       <div class="two"><label><span>Tipo de plan</span><select name="pensionType"><option value="individual" ${x.pensionType !== 'empleo' ? 'selected' : ''}>Individual</option><option value="empleo" ${x.pensionType === 'empleo' ? 'selected' : ''}>De empleo (empresa)</option></select></label>
@@ -826,6 +832,7 @@ function openAccountForm(a = null) {
     const f = $('#f-acc', root);
     const sync = (fromKindChange) => {
       $$('[data-kind]', f).forEach((el) => { el.hidden = !el.dataset.kind.split(' ').includes(f.kind.value); });
+      $('[data-ib-label]', f).textContent = INVEST_KINDS.includes(f.kind.value) ? (f.kind.value === 'robo' ? 'Valor total actual, con efectivo (€)' : 'Valor actual (€)') : 'Saldo inicial (€)';
       if (fromKindChange) f.available.checked = KINDS[f.kind.value].available;
     };
     f.kind.addEventListener('change', () => sync(true)); sync(false);
