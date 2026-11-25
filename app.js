@@ -210,6 +210,26 @@ function render() {
 }
 
 // ─── Inicio ───
+const KIND_SVG = {
+  corriente: '<path d="M3 21h18M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 10l9-6 9 6z"/>',
+  ahorro: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>',
+  deposito: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  inversion: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>',
+  robo: '<rect x="5" y="8" width="14" height="11" rx="2"/><path d="M12 4v4M9 13h.01M15 13h.01M9 16h6"/>',
+  pension: '<path d="M3 12a9 9 0 0 1 18 0zM12 12v7a2 2 0 0 0 4 0"/>',
+  efectivo: '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
+  otro: '<path d="M4 6h5l2 2h9v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/>',
+};
+const kindIcon = (k) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${KIND_SVG[k] || KIND_SVG.otro}</svg>`;
+
+function accountTile(a, b) {
+  let sub = a.available ? 'Disponible' : 'Inmovilizado';
+  if (a.kind === 'deposito' && a.maturityDate) sub = `Vence ${fmtDate(a.maturityDate)}`;
+  else if (showGain(a) && b.gain !== 0) sub = `<span class="${b.gain >= 0 ? 'up' : 'down'}">${signed(b.gain)}${b.gainPct !== null ? ` (${pct(b.gainPct)})` : ''}</span>`;
+  return `<button class="tile k-${a.kind}" data-action="open-account" data-id="${a.id}">
+    ${kindIcon(a.kind)}<span class="tn">${esc(a.name)}</span><span class="tv">${money(b.balance)}</span><span class="ts">${sub}</span></button>`;
+}
+
 function viewHome() {
   if (!S.accounts.length) {
     return `<div class="card empty"><div class="big-emoji">👋</div>
@@ -218,7 +238,6 @@ function viewHome() {
   }
   const bal = computeBalances(), t = totals(bal);
   const pend = pendingRecurring(), alerts = depositAlerts(bal), reminders = valueReminders(), pensions = pensionAlerts();
-  const d = new Date(), ms = monthStats(d.getFullYear(), d.getMonth());
 
   let h = `<section class="card hero">
     <div class="label">Patrimonio total</div>
@@ -227,15 +246,6 @@ function viewHome() {
       <div><div class="k">Disponible</div><div class="v">${money(t.avail)}</div></div>
       <div><div class="k">Inmovilizado</div><div class="v">${money(t.locked)}</div></div>
     </div></section>`;
-
-  {
-    const now = new Date(), y = now.getFullYear(), mo = now.getMonth();
-    const tc = monthTransfers(y, mo, 'contrib').reduce((x, m) => x + (+m.amount || 0), 0);
-    const tt = monthTransfers(y, mo, 'moves').reduce((x, m) => x + (+m.amount || 0), 0);
-    h += `<div class="quick">
-      <button data-action="fs-open" data-k="contrib"><span class="qi">📥</span><span class="qt">Aportaciones del mes</span><span class="qv">${money(tc)}</span></button>
-      <button data-action="fs-open" data-k="moves"><span class="qi">🔁</span><span class="qt">Traspasos del mes</span><span class="qv">${money(tt)}</span></button></div>`;
-  }
 
   if (pend.length) {
     h += `<section class="card"><h2>Pendientes de confirmar (${pend.length})</h2>
@@ -260,13 +270,8 @@ function viewHome() {
       <button class="btn small" data-action="maturity" data-id="${a.id}">Gestionar</button></div>`).join('')}</section>`;
   }
 
-  h += `<section class="card"><h2>Este mes <button class="link" data-action="go-summary">Ver resumen</button></h2>
-    <div class="stats">
-      <div><div class="k">Ingresos</div><div class="v pos">${money(ms.income)}</div></div>
-      <div><div class="k">Gastos</div><div class="v neg">${money(ms.expenses)}</div></div>
-      <div><div class="k">Ahorro</div><div class="v">${money(ms.saved)}${ms.rate !== null ? ` <small class="muted">${Math.round(ms.rate)}%</small>` : ''}</div></div>
-    </div></section>`;
-
+  h += `<div class="tiles">${accountsSorted().map((a) => accountTile(a, bal[a.id])).join('')}
+    <button class="tile tile-add" data-action="new-account"><span>+ Nueva cuenta</span></button></div>`;
   return h;
 }
 
@@ -753,7 +758,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v1.9</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v2.0</p>`;
 }
 
 function recRow(r) {
