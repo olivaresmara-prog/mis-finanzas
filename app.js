@@ -222,12 +222,12 @@ const KIND_SVG = {
 };
 const kindIcon = (k) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${KIND_SVG[k] || KIND_SVG.otro}</svg>`;
 
-function accountTile(a, b) {
+function accountTile(a, b, flag) {
   let sub = a.available ? 'Disponible' : 'Inmovilizado';
   if (a.kind === 'deposito' && a.maturityDate) sub = `Vence ${fmtDate(a.maturityDate)}`;
   else if (showGain(a) && b.gain !== 0) sub = `<span class="${b.gain >= 0 ? 'up' : 'down'}">${signed(b.gain)}${b.gainPct !== null ? ` (${pct(b.gainPct)})` : ''}</span>`;
   return `<button class="tile k-${a.kind}" data-action="open-account" data-id="${a.id}">
-    ${kindIcon(a.kind)}<span class="tn">${esc(a.name)}</span><span class="tv">${money(b.balance)}</span><span class="ts">${sub}</span></button>`;
+    ${flag ? `<span class="tflag">${esc(flag)}</span>` : ''}${kindIcon(a.kind)}<span class="tn">${esc(a.name)}</span><span class="tv">${money(b.balance)}</span><span class="ts">${sub}</span></button>`;
 }
 
 function viewHome() {
@@ -260,17 +260,12 @@ function viewHome() {
       <div class="btn-row" style="margin-top:8px"><button class="link" data-action="rec-skip-all">Saltar todos</button></div></section>`;
   }
 
-  if (alerts.length || reminders.length || pensions.length) {
-    h += `<section class="card"><h2>Avisos</h2>${pensions.map(({ a, done, limit }) => `
-      <div class="alert"><span>🏛️</span><div class="grow"><strong>${esc(a.name)}</strong>: puedes aportar <strong>${money(limit - done)}</strong> más antes del 31 dic para deducir (llevas ${money(done)} de ${money(limit)}).</div>
-      <button class="btn small" data-action="new-mov-pension" data-id="${a.id}">Aportar</button></div>`).join('')}${reminders.map(({ a, last }) => `
-      <div class="alert"><span>📊</span><div class="grow">Toca valorar <strong>${esc(a.name)}</strong> (${valFreq(a).label.toLowerCase()}${last ? `, última: ${fmtShort(last)}` : ''}). Mira el valor en tu entidad y apúntalo.</div>
-      <button class="btn small" data-action="set-balance" data-id="${a.id}">Actualizar</button></div>`).join('')}${alerts.map(({ a, days, bal: b }) => `
-      <div class="alert"><span>⏰</span><div class="grow"><strong>${esc(a.name)}</strong> ${days < 0 ? `venció hace ${-days} días` : days === 0 ? 'vence hoy' : `vence en ${days} días`} (${fmtShort(a.maturityDate)}) · ${money(b)}</div>
-      <button class="btn small" data-action="maturity" data-id="${a.id}">Gestionar</button></div>`).join('')}</section>`;
-  }
-
-  h += `<div class="tiles">${accountsSorted().map((a) => accountTile(a, bal[a.id])).join('')}
+  // Los avisos se muestran como etiqueta pequeña en el recuadro de cada cuenta
+  const flags = {};
+  for (const { a, days } of alerts) flags[a.id] = days < 0 ? 'Vencido' : days === 0 ? 'Vence hoy' : `Vence en ${days} días`;
+  for (const { a } of reminders) flags[a.id] = 'Toca valorar';
+  for (const { a, done, limit } of pensions) flags[a.id] = `Puedes aportar ${money(limit - done)}`;
+  h += `<div class="tiles">${accountsSorted().map((a) => accountTile(a, bal[a.id], flags[a.id])).join('')}
 </div>
     <div class="add-row"><button class="btn secondary" data-action="new-account">+ Nueva cuenta</button></div>`;
   return h;
@@ -759,7 +754,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v2.2</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v2.3</p>`;
 }
 
 function recRow(r) {
