@@ -289,7 +289,7 @@ function movRow(m, ctxAccountId = null) {
   }
   const where = ctxAccountId || m.type === 'transfer' ? '' : ` · ${accName(m.accountId)}`;
   let badge = '';
-  if (ctxAccountId && !applies(ctxAccountId, m.date)) { cls = 'muted'; badge = ' <span class="badge" title="Anterior al saldo inicial de esta cuenta: no cambia su saldo">histórico</span>'; }
+  if (ctxAccountId && !applies(ctxAccountId, m.date)) { badge = ' <span class="badge" title="Anterior al saldo inicial de esta cuenta: no cambia su saldo">histórico</span>'; }
   return `<li class="row" data-action="edit-mov" data-id="${m.id}">
     <div class="row-icon">${T.icon}</div>
     <div class="row-main"><div class="row-title">${esc(title)}${badge}</div><div class="row-sub">${fmtShort(m.date)}${sub ? ' · ' + esc(sub) : ''}${esc(where)}</div></div>
@@ -753,7 +753,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v2.4</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v2.5</p>`;
 }
 
 function recRow(r) {
