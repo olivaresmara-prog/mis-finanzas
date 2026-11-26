@@ -984,6 +984,13 @@ function depositSummary(a, b) {
       <div class="track"><div class="fill" style="width:${done}%"></div></div></div><p class="hint" style="margin:4px 0 0">Plazo transcurrido: ${Math.round(done)} %. Intereses brutos, antes de la retención de IRPF.</p>` : ''}`;
 }
 
+const INV_SVG = {
+  evo: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>',
+  mis: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 13h18"/>',
+  comp: '<path d="M12 3v18M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0zM8 21h8"/>',
+  ap: '<path d="M12 3v11M8 10l4 4 4-4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
+};
+let invView = 'mis';
 function viewInversiones() {
   const invs = accountsSorted().filter(isSavingsAcc);
   if (!invs.length) return '<div class="card empty"><p>Aún no tienes carteras, fondos, planes de pensiones ni depósitos.</p><button class="btn" data-action="new-account">Nueva cuenta</button></div>';
@@ -1000,9 +1007,18 @@ function viewInversiones() {
       <div><div class="k">Rentabilidad</div><div class="v">${pctBase > 0 ? pct((gain / pctBase) * 100) : '—'}</div></div>
       <div><div class="k">TIR anual</div><div class="v">${tir === null ? '—' : pct(tir)}</div></div>
       <div><div class="k">Comisiones/año</div><div class="v">${fees ? money(fees) : '—'}</div></div></div></section>`;
-  h += `<section class="card"><h2>Todas juntas · valor y capital aportado</h2>${chartValueVsContributed('chart-inv', investSeries(ids))}</section>`;
-  // Una tarjeta por inversión
-  h += '<div class="inv-grid">' + invs.map((a) => {
+  // Botones: solo se muestra la sección elegida
+  const now = new Date();
+  const apMes = monthTransfers(now.getFullYear(), now.getMonth(), 'contrib').reduce((x, m) => x + (+m.amount || 0), 0);
+  const best = invs.filter((a) => bal[a.id].gainPct !== null).sort((x, y) => (bal[y.id].gainPct || 0) - (bal[x.id].gainPct || 0))[0];
+  const icon = (k) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${INV_SVG[k]}</svg>`;
+  const tile = (k, title, val) => `<button class="ctile ${invView === k ? 'on' : ''}" data-action="iv" data-k="${k}">${icon(k)}<span class="ct">${title}</span><span class="cv">${val}</span></button>`;
+  h += `<div class="ctiles">${tile('evo', 'Evolución', signed(gain))}${tile('mis', 'Mis inversiones', `${invs.length} ${invs.length === 1 ? 'inversión' : 'inversiones'}`)}${tile('comp', 'Comparativa', best ? `Mejor ${pct(bal[best.id].gainPct || 0)}` : '—')}${tile('ap', 'Aportaciones', `${money(apMes)} este mes`)}</div>`;
+  if (invView === 'evo') return h + `<section class="card"><h2>Todas juntas · valor y capital aportado</h2>${chartValueVsContributed('chart-inv', investSeries(ids))}</section>`;
+  if (invView === 'ap') return h + `<section class="card"><h2>Aportaciones · cada mes</h2>${chartBars('chart-ap', contribSeries(), [{ key: 'v', label: 'Aportado', cls: 's1' }], 'single',
+    'Dinero aportado a inversiones y depósitos cada mes', (p) => `${esc(p.full)}<br>Aportado: <strong>${money(p.v)}</strong>`)}
+    <p class="hint" style="margin:8px 0 0">Dinero que pasa de tus cuentas normales a carteras, fondos, planes y depósitos.</p></section>`;
+  if (invView === 'mis') return h + '<div class="inv-grid">' + invs.map((a) => {
     const b = bal[a.id], t = isInvest(a) ? annualReturn(new Set([a.id])) : null;
     const vi = isInvest(a) ? valuationInfo(a) : null;
     const extra = a.kind === 'deposito'
@@ -1013,7 +1029,7 @@ function viewInversiones() {
       ${a.kind === 'deposito' ? depositSummary(a, b) : withChartWidth(340, () => chartValueVsContributed(`chart-a-${a.id}`, investSeries(new Set([a.id]))))}
       <button class="link" data-action="open-account" data-id="${a.id}" style="margin-top:8px">Ver detalle ›</button></section>`;
   }).join('') + '</div>';
-  // Comparativa de rentabilidad
+  // Comparativa: rentabilidad + reparto
   const maxP = Math.max(...invs.map((a) => Math.abs(bal[a.id].gainPct || 0)), 1);
   h += `<section class="card"><h2>Comparativa de rentabilidad</h2>${invs.map((a) => {
     const g = bal[a.id].gainPct || 0;
@@ -1026,10 +1042,6 @@ function viewInversiones() {
     return `<div class="catbar"><div class="top"><span>${esc(a.name)}</span><span>${money(bal[a.id].balance)} <span class="muted">${share.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %</span></span></div>
       <div class="track"><div class="fill" style="width:${Math.max(1, share)}%"></div></div></div>`;
   }).join('')}</section>`;
-  // Aportaciones por mes
-  h += `<section class="card"><h2>Aportaciones · cada mes</h2>${chartBars('chart-ap', contribSeries(), [{ key: 'v', label: 'Aportado', cls: 's1' }], 'single',
-    'Dinero aportado a inversiones y depósitos cada mes', (p) => `${esc(p.full)}<br>Aportado: <strong>${money(p.v)}</strong>`)}
-    <p class="hint" style="margin:8px 0 0">Dinero que pasa de tus cuentas normales a carteras, fondos, planes y depósitos.</p></section>`;
   return h;
 }
 
@@ -1054,7 +1066,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.2</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.3</p>`;
 }
 
 function recRow(r) {
@@ -1441,6 +1453,7 @@ document.addEventListener('click', async (e) => {
     case 'go-accounts': nav = { tab: 'more', sub: 'accounts' }; render(); break;
     case 'am-prev': accMonth = accMonth.m === 0 ? { y: accMonth.y - 1, m: 11 } : { y: accMonth.y, m: accMonth.m - 1 }; render(); break;
     case 'am-next': accMonth = accMonth.m === 11 ? { y: accMonth.y + 1, m: 0 } : { y: accMonth.y, m: accMonth.m + 1 }; render(); break;
+    case 'iv': invView = el.dataset.k; render(); break;
     case 'cv': cuentasView = el.dataset.k; render(); break;
     case 'mt-prev': metasIdx = Math.max(0, (metasIdx ?? 0) - 1); render(); break;
     case 'mt-next': metasIdx = (metasIdx ?? 0) + 1; render(); break;

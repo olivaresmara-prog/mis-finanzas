@@ -274,3 +274,4 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 .mt-sum { margin-top: 14px; background: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: 14px; font-variant-numeric: tabular-nums; }
 .mt-sum > div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
 .mt-sum-total { font-weight: 700; font-size: 15px; border-top: 1px solid var(--line); margin-top: 4px; padding-top: 7px !important; }
+.ctile .cv { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
