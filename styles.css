@@ -275,3 +275,20 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 .mt-sum > div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
 .mt-sum-total { font-weight: 700; font-size: 15px; border-top: 1px solid var(--line); margin-top: 4px; padding-top: 7px !important; }
 .ctile .cv { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.ctiles.three { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 600px) { .ctiles.three { gap: 8px; } .ctiles.three .ctile { padding: 10px; } .ctiles.three .ct { font-size: 12px; } .ctiles.three .cv { font-size: 14px; } }
+.acc-tabs { margin: 0 0 12px; }
+/* Barra de reparto de lo invertido (paleta categórica validada, orden fijo) */
+.reparto { display: flex; gap: 2px; height: 12px; border-radius: 6px; overflow: hidden; margin-top: 14px; }
+.reparto i { display: block; min-width: 3px; }
+.reparto-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.reparto-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.reparto-legend b { color: var(--text); font-weight: 600; }
+.reparto-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.r0 { background: #257de0; } .r1 { background: #f47230; } .r2 { background: #00b894; } .r3 { background: #f2a600; }
+.r4 { background: #ee7fac; } .r5 { background: #008a17; } .r6 { background: #6a4ce2; } .r7 { background: #ec4647; }
+@media (prefers-color-scheme: dark) {
+  .r0 { background: #338ced; } .r1 { background: #e76624; } .r2 { background: #00a888; } .r3 { background: #d28e05; }
+  .r4 { background: #e24d8b; } .r5 { background: #0aac23; } .r6 { background: #9887ef; } .r7 { background: #eb6263; }
+}

@@ -67,7 +67,10 @@ const TYPES = {
   yield: { label: 'Rendimiento', icon: '✨' },
   set: { label: 'Actualizar saldo', icon: '🎯' },
 };
-const EXPENSE_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud', 'Seguros', 'Impuestos', 'Suscripciones', 'Ocio', 'Compras', 'Viajes', 'Donaciones', 'Otros'];
+const EXPENSE_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud y seguros', 'Impuestos', 'Ocio y compras', 'Donaciones'];
+// Categorías antiguas → nuevas (los gastos ya apuntados se agrupan solos, sin tocar los datos)
+const OLD_CATS = { Salud: 'Salud y seguros', Seguros: 'Salud y seguros', Ocio: 'Ocio y compras', Compras: 'Ocio y compras', Suscripciones: 'Ocio y compras', Viajes: 'Ocio y compras', Otros: 'Ocio y compras' };
+const normCat = (c) => (c ? OLD_CATS[c] || c : 'Ocio y compras');
 const EXTERNAL_CAT = 'Desde otra cuenta mía';
 const INCOME_CATS = ['Nómina', 'Paga extra', 'Ingreso extra', 'Aportación empresa', 'Devoluciones', EXTERNAL_CAT, 'Otros'];
 const FREQS = { weekly: 'Semanal', monthly: 'Mensual', quarterly: 'Trimestral', fourmonthly: 'Cuatrimestral', semiannual: 'Semestral', yearly: 'Anual' };
@@ -155,7 +158,7 @@ function monthStats(y, m) {
     else if (mv.type === 'yield') r.yields += amt;
     else if (mv.type === 'expense') {
       if (mv.fixed) r.fixed += amt; else r.extra += amt;
-      const c = mv.category || 'Otros'; r.byCat[c] = (r.byCat[c] || 0) + amt;
+      const c = normCat(mv.category); r.byCat[c] = (r.byCat[c] || 0) + amt;
     }
   }
   r.expenses = r.fixed + r.extra;
@@ -277,7 +280,7 @@ function movRow(m, ctxAccountId = null) {
   let title, sub, cls = '', amt;
   const a = +m.amount || 0;
   switch (m.type) {
-    case 'expense': title = m.note || m.category || 'Gasto'; sub = `${m.category || ''}${m.fixed ? ' · fijo' : ''}`; cls = 'neg'; amt = signed(-a); break;
+    case 'expense': title = m.note || normCat(m.category); sub = `${normCat(m.category)}${m.fixed ? ' · fijo' : ''}`; cls = 'neg'; amt = signed(-a); break;
     case 'income': title = m.note || m.category || 'Ingreso'; sub = m.category || ''; cls = 'pos'; amt = signed(a); break;
     case 'transfer':
       title = m.note || 'Traspaso'; sub = `${accName(m.accountId)} → ${accName(m.toAccountId)}`;
@@ -352,11 +355,12 @@ function viewAccount(a) {
       <p class="hint" style="margin:8px 0 0">La ganancia solo cambia cuando actualizas el valor (${valFreq(a).label.toLowerCase()}); las aportaciones de en medio suman al capital, no a la ganancia. ${tir === null ? 'La TIR aparece con al menos 3 meses de historial.' : 'La TIR tiene en cuenta cuándo hiciste cada aportación.'}</p>`;
   }
   h += '</section>';
+  let resumen = '';
   if (a.kind === 'robo' || a.kind === 'pension') {
     const fee = a.feePct ? round2(b.balance * a.feePct / 100) : null;
     const eq = a.equityPct !== null && a.equityPct !== undefined && a.equityPct !== '' ? +a.equityPct : null;
     const ci = a.kind === 'robo' ? cashInfo(a, b.balance) : null;
-    h += `<section class="card"><h2>Cartera</h2><div class="stats">
+    resumen += `<section class="card"><h2>Cartera</h2><div class="stats">
       <div><div class="k">Entidad</div><div class="v">${esc(a.entity || '—')}</div></div>
       <div><div class="k">${a.kind === 'pension' ? 'Tipo de plan' : 'Perfil de riesgo'}</div><div class="v">${a.kind === 'pension' ? (a.pensionType === 'empleo' ? 'De empleo' : 'Individual') : a.risk ? `${a.risk}/10 <small class="muted">${RISK_LABEL(a.risk)}</small>` : '—'}</div></div>
       <div><div class="k">Comisión anual</div><div class="v">${a.feePct ? amountInput(a.feePct) + ' %' : '—'}</div></div></div>
@@ -370,7 +374,7 @@ function viewAccount(a) {
   }
   if (a.kind === 'pension') {
     const y = new Date().getFullYear(), done = contributedInYear(a.id, y), limit = pensionLimit(a);
-    h += `<section class="card"><h2>Aportaciones ${y}</h2>
+    resumen += `<section class="card"><h2>Aportaciones ${y}</h2>
       <div class="catbar"><div class="top"><span>${money(done)} de ${money(limit)}</span><span class="muted">${Math.min(100, Math.round((done / limit) * 100))}%</span></div>
       <div class="track"><div class="fill" style="width:${Math.min(100, (done / limit) * 100)}%"></div></div></div>
       <p class="hint" style="margin:8px 0 0">${done >= limit ? 'Has llegado al límite deducible de este año.' : `Puedes aportar ${money(limit - done)} más este año y reducirlos de tu base imponible del IRPF.`}
@@ -380,16 +384,16 @@ function viewAccount(a) {
   if (a.kind === 'inversion' || a.kind === 'robo') {
     const y = new Date().getFullYear();
     const n = S.movements.filter((m) => (m.type === 'transfer' && m.toAccountId === a.id) || (m.type === 'income' && m.accountId === a.id)).length;
-    h += `<section class="card"><h2>Aportaciones</h2><div class="stats">
+    resumen += `<section class="card"><h2>Aportaciones</h2><div class="stats">
       <div><div class="k">Este año</div><div class="v">${money(contributedInYear(a.id, y))}</div></div>
       <div><div class="k">Total aportado</div><div class="v">${money(b.contributed)}</div></div>
       <div><div class="k">Nº aportaciones</div><div class="v">${n}</div></div></div></section>`;
   }
-  if (isInvest(a)) h += `<section class="card"><h2>Evolución</h2>${chartValueVsContributed('chart-acc', investSeries(new Set([a.id])))}</section>`;
+  if (isInvest(a)) resumen += `<section class="card"><h2>Evolución</h2>${chartValueVsContributed('chart-acc', investSeries(new Set([a.id])))}</section>`;
   if (a.kind === 'deposito') {
     const days = a.maturityDate ? daysBetween(today(), a.maturityDate) : null;
     const est = estimatedInterest(a, b.contributed > 0 ? b.contributed : b.balance);
-    h += `<section class="card"><h2>Depósito</h2><div class="stats">
+    resumen += `<section class="card"><h2>Depósito</h2><div class="stats">
       <div><div class="k">TAE</div><div class="v">${a.tae ? String(a.tae).replace('.', ',') + ' %' : '—'}</div></div>
       <div><div class="k">Vencimiento</div><div class="v">${a.maturityDate ? fmtShort(a.maturityDate) : '—'}</div></div>
       <div><div class="k">${days !== null && days < 0 ? 'Vencido' : 'Quedan'}</div><div class="v">${days === null ? '—' : Math.abs(days) + ' días'}</div></div></div>
@@ -400,16 +404,25 @@ function viewAccount(a) {
     ${isInvest(a) ? `<button class="btn" data-action="new-contribution" data-id="${a.id}">+ Aportación</button>` : `<button class="btn" data-action="new-mov-account" data-id="${a.id}">+ Movimiento</button>`}
     <button class="btn secondary" data-action="set-balance" data-id="${a.id}">${isInvest(a) ? 'Actualizar valor' : 'Ajustar saldo'}</button>
     <button class="btn ghost" data-action="edit-account" data-id="${a.id}">Editar</button></div>`;
-  h += `<div class="init-bal">Saldo inicial: <strong>${money(+a.initialBalance || 0)}</strong>${a.initialDate ? ` el ${fmtDate(a.initialDate)}` : ''}</div>`;
-  if (!isSavingsAcc(a)) h += accountMonthCard(a);
-  h += flowsCard(a);
-  const recs = S.recurring.filter((r) => r.accountId === a.id || r.toAccountId === a.id);
-  if (recs.length) h += `<section class="card"><h2>Fijos y automáticos</h2><ul class="list">${recs.map(recRow).join('')}</ul></section>`;
-  h += `<section class="card"><h2>Movimientos</h2>${movs.length ? `<ul class="list">${movs.slice(0, nav.showAll ? undefined : 25).map((m) => movRow(m, a.id)).join('')}</ul>${!nav.showAll && movs.length > 25 ? `<button class="link" data-action="show-all-acc" style="margin-top:8px">Ver los ${movs.length} movimientos</button>` : ''}` : '<div class="empty">Sin movimientos todavía.</div>'}
-    ${movs.some((m) => !applies(a.id, m.date)) ? '<p class="hint" style="margin:10px 0 0">Los marcados como <span class="badge">histórico</span> son anteriores al saldo inicial: ya están incluidos en él y no lo cambian.</p>' : ''}</section>`;
+  // Pestañas pequeñas: solo se ve una sección cada vez
+  const first = isSavingsAcc(a) ? 'resumen' : 'mes';
+  const tabs = [[first, first === 'mes' ? 'Mes' : 'Resumen'], ['traspasos', 'Traspasos'], ['movs', 'Movimientos']];
+  if (!tabs.some(([k]) => k === accTab)) accTab = first;
+  h += `<div class="seg acc-tabs">${tabs.map(([k, l]) => `<button type="button" class="${accTab === k ? 'on' : ''}" data-action="acc-tab" data-k="${k}">${l}</button>`).join('')}</div>`;
+  if (accTab === 'resumen') h += resumen || '<div class="card empty">Sin datos todavía.</div>';
+  else if (accTab === 'mes') h += accountMonthCard(a);
+  else if (accTab === 'traspasos') h += flowsCard(a) || '<div class="card empty">Esta cuenta no tiene traspasos.</div>';
+  else {
+    h += `<div class="init-bal">Saldo inicial: <strong>${money(+a.initialBalance || 0)}</strong>${a.initialDate ? ` el ${fmtDate(a.initialDate)}` : ''}</div>`;
+    const recs = S.recurring.filter((r) => r.accountId === a.id || r.toAccountId === a.id);
+    if (recs.length) h += `<section class="card"><h2>Fijos y automáticos</h2><ul class="list">${recs.map(recRow).join('')}</ul></section>`;
+    h += `<section class="card"><h2>Movimientos</h2>${movs.length ? `<ul class="list">${movs.slice(0, nav.showAll ? undefined : 25).map((m) => movRow(m, a.id)).join('')}</ul>${!nav.showAll && movs.length > 25 ? `<button class="link" data-action="show-all-acc" style="margin-top:8px">Ver los ${movs.length} movimientos</button>` : ''}` : '<div class="empty">Sin movimientos todavía.</div>'}
+      ${movs.some((m) => !applies(a.id, m.date)) ? '<p class="hint" style="margin:10px 0 0">Los marcados como <span class="badge">histórico</span> son anteriores al saldo inicial: ya están incluidos en él y no lo cambian.</p>' : ''}</section>`;
+  }
   return h;
 }
 
+let accTab = null;
 // ─── Resumen mensual de aportaciones / traspasos (botones de Inicio) ───
 const isSavingsAcc = (a) => !!a && (INVEST_KINDS.includes(a.kind) || a.kind === 'deposito');
 /** kind 'contrib': dinero que entra en inversiones/depósitos desde cuentas normales. 'moves': el resto de traspasos. */
@@ -463,7 +476,8 @@ function accountMonthCard(a) {
   let adjust = false;
   for (const x of movs) {
     if (x.type === 'income' || x.type === 'yield' || (x.type === 'transfer' && x.toAccountId === a.id)) groups.in.push(x);
-    else if (x.type === 'expense') (x.fixed ? groups.fixed : groups.extra).push(x);
+    // Mismo criterio que las metas: por categoría (Gastos / Otros gastos)
+    else if (x.type === 'expense') (catGroup(metasAccount() || {}, normCat(x.category)) === 'g' ? groups.fixed : groups.extra).push(x);
     else if (x.type === 'transfer') groups.out.push(x);
     else if (x.type === 'set') adjust = true;
   }
@@ -485,7 +499,7 @@ function accountMonthCard(a) {
       <div><div class="k">Entradas</div><div class="v pos">${money(tIn)}</div></div>
       <div><div class="k">${last < today() ? 'Saldo a fin de mes' : 'Saldo hoy'}</div><div class="v">${money(endBal)}</div></div></div>
     ${movs.length ? `${block('Entradas', groups.in, tIn, 'in', false)}
-    ${block('Gastos fijos', groups.fixed, tFix, 'fix', true)}
+    ${block('Gastos', groups.fixed, tFix, 'fix', true)}
     ${block('Otros gastos', groups.extra, tExt, 'ext', true)}
     ${block('Traspasos y aportaciones', groups.out, tOut, 'out', true)}
     <div class="am-total"><span>Total salidas</span><span>${money(spent)}${base > 0 ? ` <small>${p(spent)}</small>` : ''}</span></div>
@@ -763,7 +777,7 @@ const lastValueUpdate = (a) => S.movements.filter((m) => m.accountId === a.id &&
 let cuentaEvo = null;
 // ─── Metas 50/30/20 sobre la cuenta nómina ───
 const META_GROUPS = { g: 'Gastos', o: 'Otros gastos', i: 'Invertir' };
-const DEFAULT_GASTOS_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud', 'Seguros', 'Impuestos'];
+const DEFAULT_GASTOS_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud y seguros', 'Impuestos'];
 const metasAccount = () => S.accounts.find((a) => a.metasAccount && !a.archived);
 const metasPct = (a) => ({ g: 50, o: 30, i: 20, ...(a.metasPct || {}) });
 /** Grupo de una categoría de gasto (configurable en la cuenta nómina). */
@@ -800,7 +814,7 @@ function metasPeriodData(ma, p) {
     const amt = +m.amount || 0;
     if (m.type === 'income' && m.accountId === ma.id) { if (m.category === 'Nómina') nomina += amt; else if (m.category === 'Paga extra') extra += amt; else otherIn += amt; }
     else if ((m.type === 'transfer' && m.toAccountId === ma.id) || (m.type === 'yield' && m.accountId === ma.id)) otherIn += amt;
-    else if (m.type === 'expense' && m.accountId === ma.id) real[catGroup(ma, m.category || 'Otros')].push(m);
+    else if (m.type === 'expense' && m.accountId === ma.id) real[catGroup(ma, normCat(m.category))].push(m);
     else if (m.type === 'transfer' && m.accountId === ma.id) real[transferGroup(acc(m.toAccountId))].push(m);
   }
   const pc = metasPct(ma);
@@ -831,7 +845,7 @@ function metasSection() {
   };
   const label = (m) => {
     if (m.type === 'transfer') return `${m.note || 'Traspaso'} · a ${accName(m.toAccountId)}`;
-    return `${m.note || m.category || 'Gasto'}${m.category && m.note ? ` · ${m.category}` : ''}`;
+    return `${m.note || normCat(m.category)}${m.note ? ` · ${normCat(m.category)}` : ''}`;
   };
   const detail = ['g', 'o', 'i'].map((k) => d.real[k].length ? `<div class="am-group"><div class="am-head ${k === 'g' ? 'fix' : k === 'o' ? 'ext' : 'out'}"><span>${META_GROUPS[k]}</span><span>${money(d.r[k])}</span></div>
     <ul class="fs-items am-items">${d.real[k].map((m) => `<li data-action="edit-mov" data-id="${m.id}"><span>${fmtShort(m.date)} · ${esc(label(m))}</span><span>${money(+m.amount)}</span></li>`).join('')}</ul></div>` : '').join('');
@@ -850,6 +864,7 @@ function metasSection() {
       <div class="mt-sum-total"><span>= Dinero en Cuenta${p.end ? ` a ${fmtShort(p.end)}` : ''}</span><span>${money(totRem + d.before + d.otherIn)}</span></div>
     </div>
     <details style="margin-top:6px"><summary>Ver detalle</summary>${detail || '<div class="empty">Aún no ha salido nada en este periodo.</div>'}</details>
+    ${periods.length > 1 ? `<details style="margin-top:6px"><summary>Histórico de remanentes</summary>${sobranteSection()}</details>` : ''}
     <div class="btn-row" style="margin-top:12px"><button class="btn small secondary" data-action="mt-config">Configurar metas</button></div>`;
 }
 
@@ -885,11 +900,11 @@ function sobranteSection() {
   if (!periods.length) return '<div class="empty">Apunta tu nómina (Ingreso, categoría Nómina) para ver lo que te sobra cada mes.</div>';
   const pts = periods.map((p) => {
     const d = metasPeriodData(ma, p);
-    return { label: new Date(p.labelY, p.labelM, 1).toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: `${monthLabel(p.labelY, p.labelM)} (${fmtShort(p.start)} – ${p.end ? fmtShort(p.end) : 'hoy'})`, v: d.sobrante, d };
+    return { label: new Date(p.labelY, p.labelM, 1).toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: `${monthLabel(p.labelY, p.labelM)} (${fmtShort(p.start)} – ${p.end ? fmtShort(p.end) : 'hoy'})`, v: round2(d.meta.g + d.meta.o + d.meta.i - d.salidas), d };
   });
-  return `${chartSigned('chart-sob', pts, 'Lo que te ha sobrado en la cuenta nómina cada periodo de nómina a nómina',
-    (p) => `${esc(p.full)}<br>Entró: ${money(p.d.base + p.d.otherIn)}<br>Salió: ${money(p.d.salidas)}<br>Sobró: <strong>${signed(p.v)}</strong>`)}
-    <p class="hint" style="margin:8px 0 0">Lo que entró en ${esc(ma.name)} (nómina, paga extra y otros) menos todo lo que salió (gastos y traspasos), de nómina a nómina. Por debajo de 0: salió más de lo que entró.</p>`;
+  return `${chartSigned('chart-sob', pts, 'Remanente de cada periodo de nómina a nómina',
+    (p) => `${esc(p.full)}<br>Nómina: ${money(p.d.base)}<br>Salió: ${money(p.d.salidas)}<br>Remanente: <strong>${signed(p.v)}</strong>`)}
+    <p class="hint" style="margin:8px 0 0">Remanente de cada mes: nómina (y paga extra) menos todo lo que salió de la cuenta. Por debajo de 0: salió más de lo que cobraste.</p>`;
 }
 
 function openMetasConfig() {
@@ -944,10 +959,10 @@ function viewCuentas() {
   const list = accountsSorted().filter((a) => !isSavingsAcc(a));
   const icon = (k) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CT_SVG[k]}</svg>`;
   const tile = (k, title, val) => `<button class="ctile ${cuentasView === k ? 'on' : ''}" data-action="cv" data-k="${k}">${icon(k)}<span class="ct">${title}</span><span class="cv">${val}</span></button>`;
-  let h = `<div class="ctiles">${tile('metas', 'Metas', metaVal)}${tile('pat', 'Patrimonio', money(t.total))}${tile('sob', 'Lo que sobra', sobVal)}${tile('evo', 'Evolución por cuenta', `${list.length} cuentas`)}</div>`;
+  if (cuentasView === 'sob') cuentasView = 'metas';
+  let h = `<div class="ctiles three">${tile('metas', 'Metas', metaVal)}${tile('pat', 'Patrimonio', money(t.total))}${tile('evo', 'Por cuenta', `${list.length} cuentas`)}</div>`;
   if (cuentasView === 'metas') h += `<section class="card"><h2>Metas · ${esc(ma ? ma.name : 'cuenta nómina')}</h2>${metasSection()}</section>`;
   else if (cuentasView === 'pat') h += `<section class="card"><h2>Patrimonio total · fin de cada mes</h2>${chartPatrimonio()}</section>`;
-  else if (cuentasView === 'sob') h += `<section class="card"><h2>Lo que te ha sobrado cada mes${ma ? ` · ${esc(ma.name)}` : ''}</h2>${sobranteSection()}</section>`;
   else if (list.length) {
     if (!cuentaEvo || !list.some((a) => a.id === cuentaEvo)) cuentaEvo = list[0].id;
     h += `<section class="card"><h2>Evolución de cada cuenta</h2>
@@ -1006,14 +1021,16 @@ function viewInversiones() {
     <div class="stats" style="margin-top:12px">
       <div><div class="k">Rentabilidad</div><div class="v">${pctBase > 0 ? pct((gain / pctBase) * 100) : '—'}</div></div>
       <div><div class="k">TIR anual</div><div class="v">${tir === null ? '—' : pct(tir)}</div></div>
-      <div><div class="k">Comisiones/año</div><div class="v">${fees ? money(fees) : '—'}</div></div></div></section>`;
+      <div><div class="k">Comisiones/año</div><div class="v">${fees ? money(fees) : '—'}</div></div></div>
+    ${v > 0 ? `<div class="reparto" role="img" aria-label="Reparto de lo invertido">${invs.map((x, i) => `<i class="r${i % 8}" style="flex:${Math.max(0.0001, bal[x.id].balance)}" title="${esc(x.name)}: ${money(bal[x.id].balance)}"></i>`).join('')}</div>
+      <div class="reparto-legend">${invs.map((x, i) => `<span><i class="r${i % 8}"></i>${esc(x.name)} <b>${(bal[x.id].balance / v * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %</b></span>`).join('')}</div>` : ''}</section>`;
   // Botones: solo se muestra la sección elegida
   const now = new Date();
   const apMes = monthTransfers(now.getFullYear(), now.getMonth(), 'contrib').reduce((x, m) => x + (+m.amount || 0), 0);
-  const best = invs.filter((a) => bal[a.id].gainPct !== null).sort((x, y) => (bal[y.id].gainPct || 0) - (bal[x.id].gainPct || 0))[0];
   const icon = (k) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${INV_SVG[k]}</svg>`;
   const tile = (k, title, val) => `<button class="ctile ${invView === k ? 'on' : ''}" data-action="iv" data-k="${k}">${icon(k)}<span class="ct">${title}</span><span class="cv">${val}</span></button>`;
-  h += `<div class="ctiles">${tile('evo', 'Evolución', signed(gain))}${tile('mis', 'Mis inversiones', `${invs.length} ${invs.length === 1 ? 'inversión' : 'inversiones'}`)}${tile('comp', 'Comparativa', best ? `Mejor ${pct(bal[best.id].gainPct || 0)}` : '—')}${tile('ap', 'Aportaciones', `${money(apMes)} este mes`)}</div>`;
+  if (invView === 'comp') invView = 'mis';
+  h += `<div class="ctiles three">${tile('mis', 'Mis inversiones', `${invs.length} ${invs.length === 1 ? 'inversión' : 'inversiones'}`)}${tile('evo', 'Evolución', signed(gain))}${tile('ap', 'Aportaciones', `${money(apMes)} este mes`)}</div>`;
   if (invView === 'evo') return h + `<section class="card"><h2>Todas juntas · valor y capital aportado</h2>${chartValueVsContributed('chart-inv', investSeries(ids))}</section>`;
   if (invView === 'ap') return h + `<section class="card"><h2>Aportaciones · cada mes</h2>${chartBars('chart-ap', contribSeries(), [{ key: 'v', label: 'Aportado', cls: 's1' }], 'single',
     'Dinero aportado a inversiones y depósitos cada mes', (p) => `${esc(p.full)}<br>Aportado: <strong>${money(p.v)}</strong>`)}
@@ -1022,19 +1039,6 @@ function viewInversiones() {
     // Un recuadro por inversión, como en Inicio; al pulsarlo se abre su detalle con el gráfico
     return h + `<div class="tiles">${invs.map((x) => accountTile(x, bal[x.id])).join('')}</div>`;
   }
-  // Comparativa: rentabilidad + reparto
-  const maxP = Math.max(...invs.map((a) => Math.abs(bal[a.id].gainPct || 0)), 1);
-  h += `<section class="card"><h2>Comparativa de rentabilidad</h2>${invs.map((a) => {
-    const g = bal[a.id].gainPct || 0;
-    return `<div class="catbar"><div class="top"><span>${esc(a.name)}</span><span class="${g >= 0 ? 'pos' : 'neg'}">${signed(bal[a.id].gain)} · ${pct(g)}</span></div>
-      <div class="track"><div class="fill" style="width:${Math.max(2, (Math.abs(g) / maxP) * 100)}%;background:var(${g >= 0 ? '--pos' : '--neg'})"></div></div></div>`;
-  }).join('')}<p class="hint" style="margin:8px 0 0">Según la última valoración de cada una.</p></section>`;
-  // Reparto
-  h += `<section class="card"><h2>Reparto de lo invertido</h2>${invs.map((a) => {
-    const share = v > 0 ? (bal[a.id].balance / v) * 100 : 0;
-    return `<div class="catbar"><div class="top"><span>${esc(a.name)}</span><span>${money(bal[a.id].balance)} <span class="muted">${share.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %</span></span></div>
-      <div class="track"><div class="fill" style="width:${Math.max(1, share)}%"></div></div></div>`;
-  }).join('')}</section>`;
   return h;
 }
 
@@ -1059,7 +1063,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.6</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.7</p>`;
 }
 
 function recRow(r) {
@@ -1128,7 +1132,7 @@ function openMovementForm({ movement = null, preset = {}, fromRecurring = null }
     <p class="hint" data-show="set" data-current></p>
     <label data-show="set" data-only-robo><span>De ello, efectivo sin invertir (€, opcional)</span><input name="cash" inputmode="decimal" placeholder="Si lo dejas vacío, se estima" value="${amountInput(m.cash)}"></label>
     <label data-show="transfer"><span>Cuenta destino</span><select name="toAccountId">${accountOptions(m.toAccountId || accountsSorted().find((a) => a.id !== defAcc)?.id, { includeArchived: editing })}</select></label>
-    <label data-show="expense"><span>Categoría</span><select name="catExpense">${catOptions(EXPENSE_CATS, m.type === 'expense' ? m.category : '')}</select></label>
+    <label data-show="expense"><span>Categoría</span><select name="catExpense">${catOptions(EXPENSE_CATS, m.type === 'expense' ? normCat(m.category) : '')}</select></label>
     <label data-show="income"><span>Categoría</span><select name="catIncome">${catOptions(INCOME_CATS, m.type === 'income' ? m.category : 'Nómina')}</select></label>
     <label class="check" data-show="expense"><input type="checkbox" name="fixed" ${m.fixed ? 'checked' : ''}> Es un gasto fijo (recibo, cuota…)</label>
     <div class="two"><label><span>Fecha</span><input type="date" name="date" value="${m.date}" required></label>
@@ -1298,7 +1302,7 @@ function remainingTimes(r) {
 function confirmRecurring(r) {
   store.add('movements', {
     type: r.type, amount: +r.amount, date: r.nextDate, accountId: r.accountId,
-    toAccountId: r.type === 'transfer' ? r.toAccountId : null, category: r.category || null,
+    toAccountId: r.type === 'transfer' ? r.toAccountId : null, category: r.type === 'expense' ? normCat(r.category) : r.category || null,
     fixed: r.type === 'expense', note: r.name, recurringId: r.id,
   });
   advanceRecurring(r);
@@ -1317,7 +1321,7 @@ function openRecurringForm(r = null) {
     <p class="hint">Si el importe varía (luz, agua), pon el habitual: podrás cambiarlo al confirmarlo.</p>
     <label><span data-acc-label>Cuenta</span><select name="accountId">${accountOptions(defAcc)}</select></label>
     <label data-show="transfer"><span>Cuenta destino</span><select name="toAccountId">${accountOptions(x.toAccountId || accountsSorted().find((a) => a.id !== defAcc)?.id)}</select></label>
-    <label data-show="expense"><span>Categoría</span><select name="catExpense">${catOptions(EXPENSE_CATS, x.type === 'expense' ? x.category : '')}</select></label>
+    <label data-show="expense"><span>Categoría</span><select name="catExpense">${catOptions(EXPENSE_CATS, x.type === 'expense' ? normCat(x.category) : '')}</select></label>
     <label data-show="income"><span>Categoría</span><select name="catIncome">${catOptions(INCOME_CATS, x.type === 'income' ? x.category : 'Nómina')}</select></label>
     <div class="two"><label><span>Frecuencia</span><select name="frequency">${Object.entries(FREQS).map(([k, v]) => `<option value="${k}" ${x.frequency === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
     <label><span>Próxima fecha</span><input type="date" name="nextDate" value="${x.nextDate}" required></label></div>
@@ -1421,7 +1425,7 @@ function download(name, text, type) {
 function exportCSV() {
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [['Fecha', 'Tipo', 'Importe', 'Cuenta', 'Cuenta destino', 'Categoría', 'Fijo', 'Concepto']];
-  for (const m of sortedMovements()) rows.push([m.date, TYPES[m.type]?.label, String(m.amount).replace('.', ','), accName(m.accountId), m.toAccountId ? accName(m.toAccountId) : '', m.category || '', m.fixed ? 'Sí' : '', m.note || '']);
+  for (const m of sortedMovements()) rows.push([m.date, TYPES[m.type]?.label, String(m.amount).replace('.', ','), accName(m.accountId), m.toAccountId ? accName(m.toAccountId) : '', m.type === 'expense' ? normCat(m.category) : m.category || '', m.fixed ? 'Sí' : '', m.note || '']);
   download(`movimientos-${today()}.csv`, '﻿' + rows.map((r) => r.map(q).join(';')).join('\n'), 'text/csv');
 }
 
@@ -1441,11 +1445,12 @@ document.addEventListener('click', async (e) => {
     case 'edit-mov': { const m = S.movements.find((x) => x.id === id); if (m) openMovementForm({ movement: m }); break; }
     case 'new-account': openAccountForm(); break;
     case 'edit-account': openAccountForm(acc(id)); break;
-    case 'open-account': { const d = new Date(); accMonth = { y: d.getFullYear(), m: d.getMonth() }; }
+    case 'open-account': { const d = new Date(); accMonth = { y: d.getFullYear(), m: d.getMonth() }; accTab = null; }
       nav = { tab: 'accounts', accountId: id, back: nav.tab === 'accounts' ? nav.back : { ...nav } }; render(); window.scrollTo(0, 0); break;
     case 'go-accounts': nav = { tab: 'more', sub: 'accounts' }; render(); break;
     case 'am-prev': accMonth = accMonth.m === 0 ? { y: accMonth.y - 1, m: 11 } : { y: accMonth.y, m: accMonth.m - 1 }; render(); break;
     case 'am-next': accMonth = accMonth.m === 11 ? { y: accMonth.y + 1, m: 0 } : { y: accMonth.y, m: accMonth.m + 1 }; render(); break;
+    case 'acc-tab': accTab = el.dataset.k; render(); break;
     case 'iv': invView = el.dataset.k; render(); break;
     case 'cv': cuentasView = el.dataset.k; render(); break;
     case 'mt-prev': metasIdx = Math.max(0, (metasIdx ?? 0) - 1); render(); break;
@@ -1466,7 +1471,7 @@ document.addEventListener('click', async (e) => {
     case 'rec-confirm': { const r = S.recurring.find((x) => x.id === id); if (r) { confirmRecurring(r); toast(`${r.name} registrado`); } break; }
     case 'rec-edit-confirm': {
       const r = S.recurring.find((x) => x.id === id);
-      if (r) openMovementForm({ fromRecurring: r, preset: { type: r.type, amount: r.amount, accountId: r.accountId, toAccountId: r.toAccountId, category: r.category, fixed: r.type === 'expense', note: r.name, date: r.nextDate } });
+      if (r) openMovementForm({ fromRecurring: r, preset: { type: r.type, amount: r.amount, accountId: r.accountId, toAccountId: r.toAccountId, category: r.type === 'expense' ? normCat(r.category) : r.category, fixed: r.type === 'expense', note: r.name, date: r.nextDate } });
       break;
     }
     case 'rec-skip-all': if (confirm('¿Saltar todos los pendientes sin registrarlos?')) { pendingRecurring().forEach(advanceRecurring); toast('Saltados'); } break;
