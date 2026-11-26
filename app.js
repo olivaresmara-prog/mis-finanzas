@@ -809,7 +809,8 @@ function metasPeriodData(ma, p) {
   const sum = (arr) => arr.reduce((s2, m) => s2 + (+m.amount || 0), 0);
   const r = { g: sum(real.g), o: sum(real.o), i: sum(real.i) };
   const prevDay = toISO(new Date(parseISO(p.start).getTime() - 86400000));
-  const before = computeBalances(prevDay)[ma.id]?.balance || 0;
+  // Si la cuenta empieza dentro del periodo, su saldo inicial es lo que había antes de la nómina
+  const before = ma.initialDate && ma.initialDate > prevDay ? +ma.initialBalance || 0 : computeBalances(prevDay)[ma.id]?.balance || 0;
   const salidas = r.g + r.o + r.i;
   return { nomina, extra, otherIn, base: nomina + extra, meta, real, r, before, salidas, sobrante: round2(nomina + extra + otherIn - salidas), endDate };
 }
@@ -842,7 +843,12 @@ function metasSection() {
     <div class="mt-row mt-headrow"><span></span><span>Meta</span><span>Real</span><span>Remanente</span></div>
     ${row('g')}${row('o')}${row('i')}
     <div class="mt-row mt-total"><span>Total</span><span>${money(d.meta.g + d.meta.o + d.meta.i)}</span><span>${money(d.salidas)}</span><span class="${totRem < 0 ? 'neg' : ''}">${signed(totRem)}</span></div>
-    <p class="hint" style="margin:10px 0 0">Al cobrar ya había ${money(d.before)} en ${esc(ma.name)}.${d.otherIn ? ` Además entraron ${money(d.otherIn)} de otros ingresos o traspasos (no cuentan en las metas).` : ''}</p>
+    <div class="mt-sum">
+      <div><span>Remanente del mes</span><span>${signed(totRem)}</span></div>
+      <div><span>+ Lo que ya había en la cuenta al cobrar</span><span>${money(d.before)}</span></div>
+      ${d.otherIn ? `<div><span>+ Otras entradas del periodo <small class="muted">(no cuentan en las metas)</small></span><span>${money(d.otherIn)}</span></div>` : ''}
+      <div class="mt-sum-total"><span>= Dinero en ${esc(ma.name)}${p.end ? ` a ${fmtShort(p.end)}` : ' hoy'}</span><span>${money(totRem + d.before + d.otherIn)}</span></div>
+    </div>
     <details style="margin-top:6px"><summary>Ver detalle</summary>${detail || '<div class="empty">Aún no ha salido nada en este periodo.</div>'}</details>
     <div class="btn-row" style="margin-top:12px"><button class="btn small secondary" data-action="mt-config">Configurar metas</button></div>`;
 }
@@ -1048,7 +1054,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.1</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.2</p>`;
 }
 
 function recRow(r) {
