@@ -1,6 +1,6 @@
 // Service worker: permite abrir la app sin conexión.
 // Sube este número cuando publiques cambios para forzar la actualización.
-const CACHE = 'mis-finanzas-v25';
+const CACHE = 'mis-finanzas-v26';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './store.js', './firebase-config.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 

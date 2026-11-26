@@ -1018,17 +1018,10 @@ function viewInversiones() {
   if (invView === 'ap') return h + `<section class="card"><h2>Aportaciones · cada mes</h2>${chartBars('chart-ap', contribSeries(), [{ key: 'v', label: 'Aportado', cls: 's1' }], 'single',
     'Dinero aportado a inversiones y depósitos cada mes', (p) => `${esc(p.full)}<br>Aportado: <strong>${money(p.v)}</strong>`)}
     <p class="hint" style="margin:8px 0 0">Dinero que pasa de tus cuentas normales a carteras, fondos, planes y depósitos.</p></section>`;
-  if (invView === 'mis') return h + '<div class="inv-grid">' + invs.map((a) => {
-    const b = bal[a.id], t = isInvest(a) ? annualReturn(new Set([a.id])) : null;
-    const vi = isInvest(a) ? valuationInfo(a) : null;
-    const extra = a.kind === 'deposito'
-      ? (a.maturityDate ? `Vence ${fmtDate(a.maturityDate)}${a.tae ? ` · ${amountInput(a.tae)} % TAE` : ''}` : 'Depósito')
-      : `${t !== null ? `TIR ${pct(t)} · ` : ''}Próxima valoración ${vi && vi.next ? (vi.next <= today() ? 'ya' : fmtShort(vi.next)) : '—'}`;
-    return `<section class="card inv-card"><div class="inv-head k-${a.kind}">${kindIcon(a.kind)}<div class="grow"><div class="row-title">${esc(a.name)}</div><div class="row-sub">${esc(extra)}</div></div>
-        <div class="row-amt">${money(b.balance)}${showGain(a) && b.gain !== 0 ? `<small class="${b.gain >= 0 ? 'pos' : 'neg'}">${signed(b.gain)}${b.gainPct !== null ? ` (${pct(b.gainPct)})` : ''}</small>` : ''}</div></div>
-      ${a.kind === 'deposito' ? depositSummary(a, b) : withChartWidth(340, () => chartValueVsContributed(`chart-a-${a.id}`, investSeries(new Set([a.id]))))}
-      <button class="link" data-action="open-account" data-id="${a.id}" style="margin-top:8px">Ver detalle ›</button></section>`;
-  }).join('') + '</div>';
+  if (invView === 'mis') {
+    // Un recuadro por inversión, como en Inicio; al pulsarlo se abre su detalle con el gráfico
+    return h + `<div class="tiles">${invs.map((x) => accountTile(x, bal[x.id])).join('')}</div>`;
+  }
   // Comparativa: rentabilidad + reparto
   const maxP = Math.max(...invs.map((a) => Math.abs(bal[a.id].gainPct || 0)), 1);
   h += `<section class="card"><h2>Comparativa de rentabilidad</h2>${invs.map((a) => {
@@ -1066,7 +1059,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.4</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.5</p>`;
 }
 
 function recRow(r) {
