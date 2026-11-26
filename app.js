@@ -37,7 +37,7 @@ const amountInput = (n) => (n === undefined || n === null || n === '' ? '' : (Nu
 function addPeriod(dateStr, freq, anchorDay) {
   const d = parseISO(dateStr);
   if (freq === 'weekly') { d.setDate(d.getDate() + 7); return toISO(d); }
-  const months = freq === 'quarterly' ? 3 : freq === 'yearly' ? 12 : 1;
+  const months = { quarterly: 3, fourmonthly: 4, semiannual: 6, yearly: 12 }[freq] || 1;
   let y = d.getFullYear(), m = d.getMonth() + months;
   y += Math.floor(m / 12); m %= 12;
   const last = new Date(y, m + 1, 0).getDate();
@@ -67,10 +67,10 @@ const TYPES = {
   yield: { label: 'Rendimiento', icon: '✨' },
   set: { label: 'Actualizar saldo', icon: '🎯' },
 };
-const EXPENSE_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud', 'Seguros', 'Suscripciones', 'Ocio', 'Compras', 'Impuestos', 'Otros'];
+const EXPENSE_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud', 'Seguros', 'Impuestos', 'Suscripciones', 'Ocio', 'Compras', 'Viajes', 'Donaciones', 'Otros'];
 const EXTERNAL_CAT = 'Desde otra cuenta mía';
-const INCOME_CATS = ['Nómina', 'Ingreso extra', 'Aportación empresa', 'Devoluciones', EXTERNAL_CAT, 'Otros'];
-const FREQS = { weekly: 'Semanal', monthly: 'Mensual', quarterly: 'Trimestral', yearly: 'Anual' };
+const INCOME_CATS = ['Nómina', 'Paga extra', 'Ingreso extra', 'Aportación empresa', 'Devoluciones', EXTERNAL_CAT, 'Otros'];
+const FREQS = { weekly: 'Semanal', monthly: 'Mensual', quarterly: 'Trimestral', fourmonthly: 'Cuatrimestral', semiannual: 'Semestral', yearly: 'Anual' };
 const INVEST_KINDS = ['inversion', 'robo', 'pension'];
 const VAL_FREQS = { monthly: { label: 'Cada mes', days: 31 }, quarterly: { label: 'Cada trimestre', days: 92 }, semiannual: { label: 'Cada semestre', days: 183 }, yearly: { label: 'Cada año', days: 366 } };
 const valFreq = (a) => VAL_FREQS[a.valuationFreq] || VAL_FREQS.quarterly;
@@ -201,7 +201,7 @@ function render() {
   if (nav.tab === 'home') html = viewHome();
   else if (nav.tab === 'accounts' && nav.accountId) { const a = acc(nav.accountId); if (!a) { nav = { tab: 'home' }; return render(); } title = a.name; back = true; html = withChartWidth(wideCharts() ? 680 : 340, () => viewAccount(a)); }
   else if (nav.tab === 'accounts' || (nav.tab === 'more' && nav.sub === 'accounts')) { nav = { tab: 'more', sub: 'accounts' }; title = 'Todas las cuentas'; back = true; html = viewAccounts(); }
-  else if (nav.tab === 'cuentas') { title = 'Cuentas'; html = withChartWidth(wideCharts() ? 680 : 340, viewCuentas); }
+  else if (nav.tab === 'cuentas') { title = 'Análisis de datos'; html = withChartWidth(wideCharts() ? 680 : 340, viewCuentas); }
   else if (nav.tab === 'inversiones') { title = 'Inversiones'; html = withChartWidth(wideCharts() ? 680 : 340, viewInversiones); }
   else if (nav.tab === 'more' && nav.sub === 'recurring') { title = 'Fijos y automáticos'; back = true; html = viewRecurring(); }
   else if (nav.tab === 'more' && nav.sub === 'movements') { title = 'Todos los movimientos'; back = true; html = viewAllMovements(); }
@@ -761,45 +761,188 @@ const lastValueUpdate = (a) => S.movements.filter((m) => m.accountId === a.id &&
 
 // ─── Pestaña Cuentas: patrimonio, el mes, ingresos/gastos y cada cuenta ───
 let cuentaEvo = null;
-function incomeExpenseSeries() {
-  const now = new Date(), pts = [];
-  const first = S.accounts.reduce((min, a) => (a.initialDate && a.initialDate < min ? a.initialDate : min), today()).slice(0, 7);
-  const firstMov = S.movements.reduce((min, m) => (m.date < min ? m.date : min), today()).slice(0, 7);
-  const start = first < firstMov ? first : firstMov;
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1), y = d.getFullYear(), m = d.getMonth();
-    if (monthKey(y, m) < start) continue;
-    const ms = monthStats(y, m);
-    pts.push({ label: d.toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: monthLabel(y, m), i: round2(ms.income), g: round2(ms.expenses) });
+// ─── Metas 50/30/20 sobre la cuenta nómina ───
+const META_GROUPS = { g: 'Gastos', o: 'Otros gastos', i: 'Invertir' };
+const DEFAULT_GASTOS_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud', 'Seguros', 'Impuestos'];
+const metasAccount = () => S.accounts.find((a) => a.metasAccount && !a.archived);
+const metasPct = (a) => ({ g: 50, o: 30, i: 20, ...(a.metasPct || {}) });
+/** Grupo de una categoría de gasto (configurable en la cuenta nómina). */
+function catGroup(ma, cat) {
+  const custom = ma.catGroups || {};
+  if (custom[cat]) return custom[cat];
+  return DEFAULT_GASTOS_CATS.includes(cat) ? 'g' : 'o';
+}
+/** Grupo al que cuenta un traspaso que sale de la cuenta nómina hacia otra cuenta. */
+function transferGroup(dest) {
+  if (!dest) return 'o';
+  if (isSavingsAcc(dest)) return 'i';
+  return dest.metasGroup || (dest.kind === 'ahorro' ? 'i' : 'g');
+}
+/** Periodos de nómina a nómina. Nóminas a menos de 10 días se tratan como un mismo cobro. */
+function metasPeriods(ma) {
+  const nom = S.movements.filter((m) => m.type === 'income' && m.accountId === ma.id && m.category === 'Nómina').map((m) => m.date).sort();
+  const starts = [];
+  for (const d of nom) if (!starts.length || daysBetween(starts[starts.length - 1], d) > 10) starts.push(d);
+  return starts.map((s, i) => {
+    const next = starts[i + 1];
+    const end = next ? toISO(new Date(parseISO(next).getTime() - 86400000)) : null;
+    const lab = new Date(parseISO(s).getTime() + 10 * 86400000); // cobro a fin de mes → cuenta para el mes siguiente
+    return { start: s, end, labelY: lab.getFullYear(), labelM: lab.getMonth() };
+  });
+}
+function metasPeriodData(ma, p) {
+  const endDate = p.end || today();
+  const inP = (m) => m.date >= p.start && m.date <= endDate && applies(ma.id, m.date);
+  const movs = sortedMovements().filter((m) => (m.accountId === ma.id || m.toAccountId === ma.id) && inP(m));
+  let nomina = 0, extra = 0, otherIn = 0;
+  const real = { g: [], o: [], i: [] };
+  for (const m of movs) {
+    const amt = +m.amount || 0;
+    if (m.type === 'income' && m.accountId === ma.id) { if (m.category === 'Nómina') nomina += amt; else if (m.category === 'Paga extra') extra += amt; else otherIn += amt; }
+    else if ((m.type === 'transfer' && m.toAccountId === ma.id) || (m.type === 'yield' && m.accountId === ma.id)) otherIn += amt;
+    else if (m.type === 'expense' && m.accountId === ma.id) real[catGroup(ma, m.category || 'Otros')].push(m);
+    else if (m.type === 'transfer' && m.accountId === ma.id) real[transferGroup(acc(m.toAccountId))].push(m);
   }
-  return pts;
+  const pc = metasPct(ma);
+  const base = ma.metasExtraToInvest ? nomina : nomina + extra;
+  const meta = { g: base * pc.g / 100, o: base * pc.o / 100, i: base * pc.i / 100 + (ma.metasExtraToInvest ? extra : 0) };
+  const sum = (arr) => arr.reduce((s2, m) => s2 + (+m.amount || 0), 0);
+  const r = { g: sum(real.g), o: sum(real.o), i: sum(real.i) };
+  const prevDay = toISO(new Date(parseISO(p.start).getTime() - 86400000));
+  const before = computeBalances(prevDay)[ma.id]?.balance || 0;
+  const salidas = r.g + r.o + r.i;
+  return { nomina, extra, otherIn, base: nomina + extra, meta, real, r, before, salidas, sobrante: round2(nomina + extra + otherIn - salidas), endDate };
 }
 
+let metasIdx = null;
+function metasSection() {
+  const ma = metasAccount();
+  if (!ma) return `<div class="empty">Aún no has elegido tu cuenta de nómina.<br>Entra en la cuenta (por ejemplo, <strong>Cuenta Nómina Bankinter</strong>) → <strong>Editar</strong> → marca <strong>"Es mi cuenta de nómina"</strong>.</div>`;
+  const periods = metasPeriods(ma);
+  if (!periods.length) return `<div class="empty">Para calcular las metas, apunta tu nómina en <strong>${esc(ma.name)}</strong> como <strong>Ingreso</strong> con la categoría <strong>Nómina</strong>.</div>`;
+  if (metasIdx === null || metasIdx >= periods.length) metasIdx = periods.length - 1;
+  const p = periods[metasIdx], d = metasPeriodData(ma, p), pc = metasPct(ma);
+  const row = (k) => {
+    const meta = d.meta[k], real = d.r[k], rem = meta - real, over = real > meta + 0.005;
+    const w = meta > 0 ? Math.min(100, (real / meta) * 100) : real > 0 ? 100 : 0;
+    return `<div class="mt-row"><span>${META_GROUPS[k]} <small>${pc[k]} %</small></span><span>${money(meta)}</span><span>${money(real)}</span><span class="${over ? 'neg' : 'pos'}">${signed(rem)}</span></div>
+      <div class="mt-bar"><i style="width:${Math.max(real > 0 ? 2 : 0, w)}%" class="${over ? 'over' : ''}"></i></div>`;
+  };
+  const label = (m) => {
+    if (m.type === 'transfer') return `${m.note || 'Traspaso'} · a ${accName(m.toAccountId)}`;
+    return `${m.note || m.category || 'Gasto'}${m.category && m.note ? ` · ${m.category}` : ''}`;
+  };
+  const detail = ['g', 'o', 'i'].map((k) => d.real[k].length ? `<div class="am-group"><div class="am-head ${k === 'g' ? 'fix' : k === 'o' ? 'ext' : 'out'}"><span>${META_GROUPS[k]}</span><span>${money(d.r[k])}</span></div>
+    <ul class="fs-items am-items">${d.real[k].map((m) => `<li data-action="edit-mov" data-id="${m.id}"><span>${fmtShort(m.date)} · ${esc(label(m))}</span><span>${money(+m.amount)}</span></li>`).join('')}</ul></div>` : '').join('');
+  const totRem = d.meta.g + d.meta.o + d.meta.i - d.salidas;
+  return `<div class="month-nav"><button data-action="mt-prev" aria-label="Periodo anterior" ${metasIdx === 0 ? 'disabled' : ''}>‹</button>
+      <span style="text-align:center"><strong>${monthLabel(p.labelY, p.labelM)}</strong><br><small class="muted">${fmtShort(p.start)} – ${p.end ? fmtShort(p.end) : 'hoy'}</small></span>
+      <button data-action="mt-next" aria-label="Periodo siguiente" ${metasIdx === periods.length - 1 ? 'disabled' : ''}>›</button></div>
+    <p style="margin:4px 0 10px">Nómina cobrada <strong>${money(d.nomina)}</strong>${d.extra ? ` · Paga extra <strong>${money(d.extra)}</strong>${ma.metasExtraToInvest ? ' <small class="muted">(va entera a Invertir)</small>' : ''}` : ''}</p>
+    <div class="mt-row mt-headrow"><span></span><span>Meta</span><span>Real</span><span>Remanente</span></div>
+    ${row('g')}${row('o')}${row('i')}
+    <div class="mt-row mt-total"><span>Total</span><span>${money(d.meta.g + d.meta.o + d.meta.i)}</span><span>${money(d.salidas)}</span><span class="${totRem < 0 ? 'neg' : ''}">${signed(totRem)}</span></div>
+    <p class="hint" style="margin:10px 0 0">Al cobrar ya había ${money(d.before)} en ${esc(ma.name)}.${d.otherIn ? ` Además entraron ${money(d.otherIn)} de otros ingresos o traspasos (no cuentan en las metas).` : ''}</p>
+    <details style="margin-top:6px"><summary>Ver detalle</summary>${detail || '<div class="empty">Aún no ha salido nada en este periodo.</div>'}</details>
+    <div class="btn-row" style="margin-top:12px"><button class="btn small secondary" data-action="mt-config">Configurar metas</button></div>`;
+}
+
+/** Gráfico de barras con valores positivos y negativos (lo que sobra cada periodo). */
+function chartSigned(id, pts, aria, tipFmt) {
+  if (!pts.length) return '<div class="empty">Aún no hay datos.</div>';
+  const maxV = Math.max(...pts.map((p) => p.v), 0), minV = Math.min(...pts.map((p) => p.v), 0);
+  const top = niceCeil(maxV) || (minV < 0 ? 0 : 1), bottom = minV < 0 ? -niceCeil(-minV) : 0;
+  const yS = (v) => PT + (CH - PT - PB) * (1 - (v - bottom) / ((top - bottom) || 1));
+  const n = pts.length, slot = (CW - PL) / n, bw = Math.min(22, slot * 0.6);
+  let svg = `<svg viewBox="0 0 ${CW} ${CH}" role="img" aria-label="${esc(aria)}">`;
+  const ticks = [...new Set([bottom, 0, top])];
+  for (const tv of ticks) svg += `<line class="grid" x1="${PL}" x2="${CW}" y1="${yS(tv)}" y2="${yS(tv)}"/><text class="axis" x="${PL - 6}" y="${yS(tv) + 4}" text-anchor="end">${shortNum(tv)}</text>`;
+  pts.forEach((p, i) => {
+    const x = PL + slot * i + (slot - bw) / 2, y0 = yS(0), y1 = yS(p.v);
+    const r = Math.min(4, Math.abs(y1 - y0), bw / 2);
+    const path = p.v >= 0 ? barPath(x, bw, y0, y1, true)
+      : `M${x},${y0} V${y1 - r} Q${x},${y1} ${x + r},${y1} H${x + bw - r} Q${x + bw},${y1} ${x + bw},${y1 - r} V${y0} Z`;
+    if (Math.abs(y1 - y0) > 0.5) svg += `<path class="bar s1" data-i="${i}" d="${path}"/>`;
+    svg += `<rect class="hit" data-i="${i}" data-x="${x + bw / 2}" x="${PL + slot * i}" y="${PT}" width="${slot}" height="${CH - PT - PB}"/>`;
+    svg += `<text class="axis" x="${x + bw / 2}" y="${CH - 6}" text-anchor="middle">${esc(p.label)}</text>`;
+  });
+  svg += '</svg>';
+  CHARTS[id] = { type: 'bar', pts, tip: tipFmt, w: CW };
+  const table = `<details><summary>Ver como tabla</summary><table class="data">${pts.map((p) => `<tr><td>${esc(p.full)}</td><td>${signed(p.v)}</td></tr>`).join('')}</table></details>`;
+  return `<div class="chart" data-chart="${id}">${svg}<div class="tip" hidden></div></div>${table}`;
+}
+
+function sobranteSection() {
+  const ma = metasAccount();
+  if (!ma) return '<div class="empty">Elige tu cuenta de nómina (Editar cuenta → "Es mi cuenta de nómina") para ver lo que te sobra cada mes.</div>';
+  const periods = metasPeriods(ma).slice(-12);
+  if (!periods.length) return '<div class="empty">Apunta tu nómina (Ingreso, categoría Nómina) para ver lo que te sobra cada mes.</div>';
+  const pts = periods.map((p) => {
+    const d = metasPeriodData(ma, p);
+    return { label: new Date(p.labelY, p.labelM, 1).toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: `${monthLabel(p.labelY, p.labelM)} (${fmtShort(p.start)} – ${p.end ? fmtShort(p.end) : 'hoy'})`, v: d.sobrante, d };
+  });
+  return `${chartSigned('chart-sob', pts, 'Lo que te ha sobrado en la cuenta nómina cada periodo de nómina a nómina',
+    (p) => `${esc(p.full)}<br>Entró: ${money(p.d.base + p.d.otherIn)}<br>Salió: ${money(p.d.salidas)}<br>Sobró: <strong>${signed(p.v)}</strong>`)}
+    <p class="hint" style="margin:8px 0 0">Lo que entró en ${esc(ma.name)} (nómina, paga extra y otros) menos todo lo que salió (gastos y traspasos), de nómina a nómina. Por debajo de 0: salió más de lo que entró.</p>`;
+}
+
+function openMetasConfig() {
+  const ma = metasAccount(); if (!ma) return;
+  const pc = metasPct(ma);
+  const body = `<form id="f-mt">
+    <p class="hint" style="margin:0 0 10px">Reparto de la nómina de <strong>${esc(ma.name)}</strong>. Los tres porcentajes deben sumar 100.</p>
+    <div class="stats" style="gap:8px">
+      <label><span>Gastos (%)</span><input name="g" type="number" min="0" max="100" step="1" value="${pc.g}"></label>
+      <label><span>Otros gastos (%)</span><input name="o" type="number" min="0" max="100" step="1" value="${pc.o}"></label>
+      <label><span>Invertir (%)</span><input name="i" type="number" min="0" max="100" step="1" value="${pc.i}"></label></div>
+    <label class="check"><input type="checkbox" name="extra" ${ma.metasExtraToInvest ? 'checked' : ''}> La paga extra va entera a Invertir</label>
+    <h4 style="margin:14px 0 6px">¿A qué grupo va cada categoría de gasto?</h4>
+    ${EXPENSE_CATS.map((c) => `<div class="two" style="align-items:center;margin-bottom:6px"><span>${esc(c)}</span><select name="cat-${esc(c)}"><option value="g" ${catGroup(ma, c) === 'g' ? 'selected' : ''}>Gastos</option><option value="o" ${catGroup(ma, c) === 'o' ? 'selected' : ''}>Otros gastos</option></select></div>`).join('')}
+    <p class="hint">Los traspasos a carteras, fondos, planes y depósitos cuentan siempre en Invertir. Para las demás cuentas (Santander, ahorro…), el grupo se elige en Editar de cada cuenta.</p>
+    <p class="err" hidden></p>
+    <div class="actions"><span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancelar</button><button class="btn">Guardar</button></div></form>`;
+  openSheet('Configurar metas', body, (root) => {
+    const f = $('#f-mt', root);
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const g = parseInt(f.g.value, 10) || 0, o = parseInt(f.o.value, 10) || 0, i = parseInt(f.i.value, 10) || 0;
+      if (g + o + i !== 100) { const err = $('.err', f); err.textContent = `Los porcentajes suman ${g + o + i}: deben sumar 100.`; err.hidden = false; return; }
+      const catGroups = {};
+      for (const c of EXPENSE_CATS) catGroups[c] = f.elements.namedItem(`cat-${c}`).value;
+      store.update('accounts', ma.id, { metasPct: { g, o, i }, metasExtraToInvest: f.extra.checked, catGroups });
+      closeSheet(); toast('Metas guardadas');
+    });
+  });
+}
+
+const CT_SVG = {
+  metas: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  pat: '<path d="M5 20V12M10 20V6M15 20v-9M20 20V9"/>',
+  sob: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>',
+  evo: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>',
+};
+let cuentasView = 'metas';
 function viewCuentas() {
   if (!S.accounts.length) return '<div class="card empty"><p>Crea tus cuentas en Inicio para ver aquí su evolución.</p></div>';
-  const { y, m } = summaryMonth;
-  const ms = monthStats(y, m);
-  const cats = Object.entries(ms.byCat).sort((a, b) => b[1] - a[1]);
-  const max = cats.length ? cats[0][1] : 1;
-  let h = `<section class="card"><h2>Patrimonio total · fin de cada mes</h2>${chartPatrimonio()}</section>`;
-  h += `<section class="card"><div class="month-nav"><button data-action="month-prev" aria-label="Mes anterior">‹</button><strong>${monthLabel(y, m)}</strong><button data-action="month-next" aria-label="Mes siguiente">›</button></div>
-    <div class="stats">
-      <div><div class="k">Ingresos</div><div class="v pos">${money(ms.income)}</div></div>
-      <div><div class="k">Gastos</div><div class="v neg">${money(ms.expenses)}</div></div>
-      <div><div class="k">Ahorro</div><div class="v">${money(ms.saved)}</div></div></div>
-    <div class="stats" style="margin-top:12px">
-      <div><div class="k">Gastos fijos</div><div class="v">${money(ms.fixed)}</div></div>
-      <div><div class="k">Gastos extra</div><div class="v">${money(ms.extra)}</div></div>
-      <div><div class="k">Tasa de ahorro</div><div class="v">${ms.rate === null ? '—' : Math.round(ms.rate) + ' %'}</div></div></div>
-    ${ms.yields ? `<p class="hint" style="margin:12px 0 0">Rendimientos cobrados este mes: <strong class="pos">${money(ms.yields)}</strong></p>` : ''}
-    <h2 style="margin-top:18px">Gastos por categoría</h2>
-    ${cats.length ? cats.map(([c, v]) => `<div class="catbar"><div class="top"><span>${esc(c)}</span><span>${money(v)} <span class="muted">${Math.round((v / ms.expenses) * 100)}%</span></span></div>
-      <div class="track"><div class="fill" style="width:${Math.max(2, (v / max) * 100)}%"></div></div></div>`).join('') : '<div class="empty">Sin gastos este mes.</div>'}</section>`;
-  h += `<section class="card"><h2>Ingresos y gastos · cada mes</h2>${chartBars('chart-ig', incomeExpenseSeries(), [{ key: 'i', label: 'Ingresos', cls: 's1' }, { key: 'g', label: 'Gastos', cls: 's2' }], 'group',
-    'Ingresos y gastos de cada mes', (p) => `${esc(p.full)}<br>Ingresos: <strong>${money(p.i)}</strong><br>Gastos: <strong>${money(p.g)}</strong><br>Ahorro: ${signed(p.i - p.g)}`)}
-    <p class="hint" style="margin:8px 0 0">No cuenta los traspasos entre tus cuentas ni el dinero marcado como "Desde otra cuenta mía".</p></section>`;
+  const t = totals(computeBalances());
+  const ma = metasAccount();
+  let metaVal = 'Configurar', sobVal = '—';
+  if (ma) {
+    const ps = metasPeriods(ma);
+    if (ps.length) {
+      const d = metasPeriodData(ma, ps[ps.length - 1]); // el botón siempre muestra el periodo actual
+      metaVal = `Quedan ${money(d.meta.g + d.meta.o + d.meta.i - d.salidas)}`;
+      sobVal = signed(metasPeriodData(ma, ps[ps.length - 1]).sobrante);
+    }
+  }
   const list = accountsSorted().filter((a) => !isSavingsAcc(a));
-  if (list.length) {
+  const icon = (k) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CT_SVG[k]}</svg>`;
+  const tile = (k, title, val) => `<button class="ctile ${cuentasView === k ? 'on' : ''}" data-action="cv" data-k="${k}">${icon(k)}<span class="ct">${title}</span><span class="cv">${val}</span></button>`;
+  let h = `<div class="ctiles">${tile('metas', 'Metas', metaVal)}${tile('pat', 'Patrimonio', money(t.total))}${tile('sob', 'Lo que sobra', sobVal)}${tile('evo', 'Evolución por cuenta', `${list.length} cuentas`)}</div>`;
+  if (cuentasView === 'metas') h += `<section class="card"><h2>Metas · ${esc(ma ? ma.name : 'cuenta nómina')}</h2>${metasSection()}</section>`;
+  else if (cuentasView === 'pat') h += `<section class="card"><h2>Patrimonio total · fin de cada mes</h2>${chartPatrimonio()}</section>`;
+  else if (cuentasView === 'sob') h += `<section class="card"><h2>Lo que te ha sobrado cada mes${ma ? ` · ${esc(ma.name)}` : ''}</h2>${sobranteSection()}</section>`;
+  else if (list.length) {
     if (!cuentaEvo || !list.some((a) => a.id === cuentaEvo)) cuentaEvo = list[0].id;
     h += `<section class="card"><h2>Evolución de cada cuenta</h2>
       <div class="seg" style="flex-wrap:wrap">${list.map((x) => `<button type="button" class="${x.id === cuentaEvo ? 'on' : ''}" data-action="cuenta-evo" data-id="${x.id}">${esc(x.name)}</button>`).join('')}</div>
@@ -905,7 +1048,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v2.9</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.1</p>`;
 }
 
 function recRow(r) {
@@ -919,7 +1062,7 @@ function recRow(r) {
 
 function viewRecurring() {
   const list = [...S.recurring].sort((a, b) => (a.nextDate < b.nextDate ? -1 : 1));
-  const monthly = (r) => (+r.amount || 0) * ({ weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 }[r.frequency] || 1);
+  const monthly = (r) => (+r.amount || 0) * ({ weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, fourmonthly: 1 / 4, semiannual: 1 / 6, yearly: 1 / 12 }[r.frequency] || 1);
   const act = list.filter((r) => r.active !== false);
   const inc = act.filter((r) => r.type === 'income').reduce((s, r) => s + monthly(r), 0);
   const exp = act.filter((r) => r.type === 'expense').reduce((s, r) => s + monthly(r), 0);
@@ -1042,6 +1185,9 @@ function openAccountForm(a = null) {
     <label class="check"><input type="checkbox" name="available" ${x.available ? 'checked' : ''}> Dinero disponible (puedo usarlo ya)</label>
     <div class="two"><label class="amount"><span data-ib-label>Saldo inicial (€)</span><input name="initialBalance" inputmode="decimal" placeholder="0,00" value="${amountInput(x.initialBalance)}"></label>
     <label><span>A fecha de</span><input type="date" name="initialDate" value="${x.initialDate || today()}"></label></div>
+    <div data-kind="corriente ahorro efectivo otro">
+      <label class="check"><input type="checkbox" name="metasAccount" ${x.metasAccount ? 'checked' : ''}> Es mi cuenta de nómina (para calcular las metas 50/30/20)</label>
+      <label data-not-metas><span>Lo que le envíe desde la cuenta nómina cuenta en las metas como</span><select name="metasGroup">${Object.entries(META_GROUPS).map(([k, v]) => `<option value="${k}" ${(x.metasGroup || (x.kind === 'ahorro' ? 'i' : 'g')) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
     <div data-kind="pension">
       <div class="two"><label><span>Tipo de plan</span><select name="pensionType"><option value="individual" ${x.pensionType !== 'empleo' ? 'selected' : ''}>Individual</option><option value="empleo" ${x.pensionType === 'empleo' ? 'selected' : ''}>De empleo (empresa)</option></select></label>
       <label><span>Límite anual deducible (€)</span><input name="annualLimit" inputmode="decimal" placeholder="1.500" value="${amountInput(x.annualLimit)}"></label></div>
@@ -1076,7 +1222,9 @@ function openAccountForm(a = null) {
       $$('[data-kind]', f).forEach((el) => { el.hidden = !el.dataset.kind.split(' ').includes(f.kind.value); });
       $('[data-ib-label]', f).textContent = INVEST_KINDS.includes(f.kind.value) ? (f.kind.value === 'robo' ? 'Valor total actual, con efectivo (€)' : 'Valor actual (€)') : 'Saldo inicial (€)';
       if (fromKindChange) f.available.checked = KINDS[f.kind.value].available;
+      $('[data-not-metas]', f).hidden = f.metasAccount.checked;
     };
+    f.metasAccount.addEventListener('change', () => sync(false));
     f.kind.addEventListener('change', () => sync(true)); sync(false);
     $('[data-del]', f)?.addEventListener('click', () => {
       if (hasMovs) { alert('Esta cuenta tiene movimientos. Puedes marcarla como "Archivada" para ocultarla sin perder el historial.'); return; }
@@ -1092,6 +1240,11 @@ function openAccountForm(a = null) {
       const ic = f.initialContributed.value.trim();
       data.initialContributed = INVEST_KINDS.includes(kind) && ic ? round2(parseAmount(ic)) : null;
       data.valuationFreq = INVEST_KINDS.includes(kind) ? f.valuationFreq.value : null;
+      const normal = ['corriente', 'ahorro', 'efectivo', 'otro'].includes(kind);
+      data.metasAccount = normal && f.metasAccount.checked;
+      data.metasGroup = normal && !data.metasAccount ? f.metasGroup.value : null;
+      // Solo puede haber una cuenta de nómina para las metas
+      if (data.metasAccount) S.accounts.filter((o) => o.metasAccount && o.id !== a?.id).forEach((o) => store.update('accounts', o.id, { metasAccount: false }));
       if (kind === 'pension') {
         const lim = f.annualLimit.value.trim() ? parseAmount(f.annualLimit.value) : null;
         Object.assign(data, { pensionType: f.pensionType.value, annualLimit: Number.isFinite(lim) && lim > 0 ? lim : null });
@@ -1282,6 +1435,10 @@ document.addEventListener('click', async (e) => {
     case 'go-accounts': nav = { tab: 'more', sub: 'accounts' }; render(); break;
     case 'am-prev': accMonth = accMonth.m === 0 ? { y: accMonth.y - 1, m: 11 } : { y: accMonth.y, m: accMonth.m - 1 }; render(); break;
     case 'am-next': accMonth = accMonth.m === 11 ? { y: accMonth.y + 1, m: 0 } : { y: accMonth.y, m: accMonth.m + 1 }; render(); break;
+    case 'cv': cuentasView = el.dataset.k; render(); break;
+    case 'mt-prev': metasIdx = Math.max(0, (metasIdx ?? 0) - 1); render(); break;
+    case 'mt-next': metasIdx = (metasIdx ?? 0) + 1; render(); break;
+    case 'mt-config': openMetasConfig(); break;
     case 'cuenta-evo': cuentaEvo = id; render(); break;
     case 'show-all-acc': nav = { ...nav, showAll: true }; render(); break;
     case 'fs-open': { const d = new Date(); flowSheet = { k: el.dataset.k, y: d.getFullYear(), m: d.getMonth() }; openFlowSheet(); break; }
