@@ -847,7 +847,7 @@ function metasSection() {
       <div><span>Remanente del mes</span><span>${signed(totRem)}</span></div>
       <div><span>+ Lo que ya había en la cuenta al cobrar</span><span>${money(d.before)}</span></div>
       ${d.otherIn ? `<div><span>+ Otras entradas del periodo <small class="muted">(no cuentan en las metas)</small></span><span>${money(d.otherIn)}</span></div>` : ''}
-      <div class="mt-sum-total"><span>= Dinero en ${esc(ma.name)}${p.end ? ` a ${fmtShort(p.end)}` : ' hoy'}</span><span>${money(totRem + d.before + d.otherIn)}</span></div>
+      <div class="mt-sum-total"><span>= Dinero en Cuenta${p.end ? ` a ${fmtShort(p.end)}` : ''}</span><span>${money(totRem + d.before + d.otherIn)}</span></div>
     </div>
     <details style="margin-top:6px"><summary>Ver detalle</summary>${detail || '<div class="empty">Aún no ha salido nada en este periodo.</div>'}</details>
     <div class="btn-row" style="margin-top:12px"><button class="btn small secondary" data-action="mt-config">Configurar metas</button></div>`;
@@ -1066,7 +1066,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.3</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.4</p>`;
 }
 
 function recRow(r) {
