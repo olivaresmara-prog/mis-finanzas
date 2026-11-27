@@ -871,9 +871,7 @@ function metasSection() {
   // Bloques: con varias filas, el título lleva el subtotal; con una sola fila, solo el título
   const blockHtml = (b) => {
     const m = sumKeys(d.meta, b.keys), r = sumKeys(d.r, b.keys);
-    const head = b.keys.length > 1
-      ? `<div class="mt-row mt-block ${b.cls}"><span>${b.title} <b class="mt-pct">${sumKeys(pc, b.keys)} %</b></span><span>${money(m)}</span><span>${money(r)}</span>${remCell(b.keys[0], m, r)}</div>`
-      : `<div class="mt-row mt-block ${b.cls}"><span>${b.title} <b class="mt-pct">${sumKeys(pc, b.keys)} %</b></span></div>`;
+    const head = `<div class="mt-row mt-block ${b.cls}"><span>${b.title} <b class="mt-pct">${sumKeys(pc, b.keys)} %</b></span><span>${money(m)}</span><span>${money(r)}</span>${remCell(b.keys[0], m, r)}</div>`;
     return head + b.keys.map(row).join('');
   };
   const label = (m) => {
@@ -1095,7 +1093,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.12</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.13</p>`;
 }
 
 function recRow(r) {

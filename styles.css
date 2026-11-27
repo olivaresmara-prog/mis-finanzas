@@ -304,6 +304,7 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 .mt-sub > span:first-child { padding-left: 8px; }
 .mt-sub > span:first-child small { font-size: 13px; }
 .mt-bar.mt-sub { margin-left: 10px; }
-.mt-block .neg { color: var(--neg); } .mt-block .pos { color: inherit; } .mt-block .muted { color: inherit; opacity: .75; font-weight: 600; }
+.mt-block .neg { color: var(--neg); } .mt-block .pos { color: inherit; } .mt-block .muted { color: inherit; }
+.mt-block > span:last-child { font-size: 15.5px; font-weight: 800; }
 .mt-row .muted { font-size: 13.5px; }
 .mt-block > span:not(:first-child) { text-transform: none; letter-spacing: 0; }
