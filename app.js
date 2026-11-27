@@ -852,16 +852,27 @@ function metasSection() {
   if (!periods.length) return `<div class="empty">Para calcular las metas, apunta tu nómina en <strong>${esc(ma.name)}</strong> como <strong>Ingreso</strong> con la categoría <strong>Nómina</strong>.</div>`;
   if (metasIdx === null || metasIdx >= periods.length) metasIdx = periods.length - 1;
   const p = periods[metasIdx], d = metasPeriodData(ma, p), pc = metasPct(ma);
+  // Metas de gasto (Hogar, Ocio): el remanente es lo que aún puedes gastar; en rojo si te pasas.
+  // Metas de aportar (Donaciones, Ahorro, Inversión): lo pendiente es "falta"; en verde al cumplirla.
+  const GIVE = ['d', 'a', 'i'];
+  const remCell = (k, meta, real) => {
+    const rem = meta - real;
+    if (!GIVE.includes(k)) return rem < -0.005 ? `<span class="neg">te pasas ${money(-rem)}</span>` : `<span class="pos">quedan ${money(rem)}</span>`;
+    if (rem > 0.005) return `<span class="muted">falta ${money(rem)}</span>`;
+    return `<span class="pos">✓${rem < -0.005 ? ` +${money(-rem)}` : ''}</span>`;
+  };
   const row = (k) => {
-    const meta = d.meta[k], real = d.r[k], rem = meta - real, over = real > meta + 0.005;
+    const meta = d.meta[k], real = d.r[k], give = GIVE.includes(k);
+    const over = !give && real > meta + 0.005, done = give && real > 0 && real >= meta - 0.005;
     const w = meta > 0 ? Math.min(100, (real / meta) * 100) : real > 0 ? 100 : 0;
-    return `<div class="mt-row mt-sub"><span>${META_GROUPS[k]} <small>${pc[k]} %</small></span><span>${money(meta)}</span><span>${money(real)}</span><span class="${over ? 'neg' : 'pos'}">${signed(rem)}</span></div>
-      <div class="mt-bar mt-sub"><i style="width:${Math.max(real > 0 ? 2 : 0, w)}%" class="${over ? 'over' : ''}"></i></div>`;
+    return `<div class="mt-row mt-sub"><span>${META_GROUPS[k]} <small>${pc[k]} %</small></span><span>${money(meta)}</span><span>${money(real)}</span>${remCell(k, meta, real)}</div>
+      <div class="mt-bar mt-sub"><i style="width:${Math.max(real > 0 ? 2 : 0, w)}%" class="${over ? 'over' : done ? 'done' : ''}"></i></div>`;
   };
   // Bloques: con varias filas, el título lleva el subtotal; con una sola fila, solo el título
   const blockHtml = (b) => {
+    const m = sumKeys(d.meta, b.keys), r = sumKeys(d.r, b.keys);
     const head = b.keys.length > 1
-      ? `<div class="mt-row mt-block ${b.cls}"><span>${b.title} <b class="mt-pct">${sumKeys(pc, b.keys)} %</b></span><span>${money(sumKeys(d.meta, b.keys))}</span><span>${money(sumKeys(d.r, b.keys))}</span><span>${signed(sumKeys(d.meta, b.keys) - sumKeys(d.r, b.keys))}</span></div>`
+      ? `<div class="mt-row mt-block ${b.cls}"><span>${b.title} <b class="mt-pct">${sumKeys(pc, b.keys)} %</b></span><span>${money(m)}</span><span>${money(r)}</span>${remCell(b.keys[0], m, r)}</div>`
       : `<div class="mt-row mt-block ${b.cls}"><span>${b.title} <b class="mt-pct">${sumKeys(pc, b.keys)} %</b></span></div>`;
     return head + b.keys.map(row).join('');
   };
@@ -876,7 +887,7 @@ function metasSection() {
       <span style="text-align:center"><strong>${monthLabel(p.labelY, p.labelM)}</strong><br><small class="muted">${fmtShort(p.start)} – ${p.end ? fmtShort(p.end) : 'hoy'}</small></span>
       <button data-action="mt-next" aria-label="Periodo siguiente" ${metasIdx === periods.length - 1 ? 'disabled' : ''}>›</button></div>
     <p style="margin:4px 0 10px">Nómina cobrada <strong>${money(d.nomina)}</strong>${d.extra ? ` · Paga extra <strong>${money(d.extra)}</strong>${ma.metasExtraToInvest ? ' <small class="muted">(va entera a Inversión)</small>' : ''}` : ''}</p>
-    <div class="mt-row mt-headrow"><span></span><span>Meta</span><span>Real</span><span>Remanente</span></div>
+    <div class="mt-row mt-headrow"><span></span><span>Meta</span><span>Real</span><span>Situación</span></div>
     ${META_BLOCKS.map(blockHtml).join('')}
     <div class="mt-row mt-total"><span>Total</span><span>${money(d.metaTotal)}</span><span>${money(d.salidas)}</span><span class="${totRem < 0 ? 'neg' : ''}">${signed(totRem)}</span></div>
     <div class="mt-sum">
@@ -1084,7 +1095,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.11</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.12</p>`;
 }
 
 function recRow(r) {

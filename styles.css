@@ -268,6 +268,7 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 .mt-bar { height: 6px; border-radius: 3px; background: var(--bg); margin-bottom: 4px; overflow: hidden; }
 .mt-bar i { display: block; height: 6px; border-radius: 3px; background: var(--bar); }
 .mt-bar i.over { background: var(--neg); }
+.mt-bar i.done { background: var(--pos); }
 .mt-total { font-weight: 700; border-top: 2px solid var(--line); margin-top: 6px; padding-top: 10px; }
 .month-nav button[disabled] { opacity: .35; cursor: default; }
 .mt-row small { display: block; font-size: 11.5px; }
@@ -303,3 +304,6 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 .mt-sub > span:first-child { padding-left: 8px; }
 .mt-sub > span:first-child small { font-size: 13px; }
 .mt-bar.mt-sub { margin-left: 10px; }
+.mt-block .neg { color: var(--neg); } .mt-block .pos { color: inherit; } .mt-block .muted { color: inherit; opacity: .75; font-weight: 600; }
+.mt-row .muted { font-size: 13.5px; }
+.mt-block > span:not(:first-child) { text-transform: none; letter-spacing: 0; }
