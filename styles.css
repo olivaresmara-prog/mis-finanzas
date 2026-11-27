@@ -295,9 +295,11 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
   .r4 { background: #e24d8b; } .r5 { background: #0aac23; } .r6 { background: #9887ef; } .r7 { background: #eb6263; }
 }
 
-/* Metas en bloques */
-.mt-block { font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); padding-top: 14px; border-top: 1px solid var(--line); margin-top: 6px; }
-.mt-block span { color: var(--muted); }
-.mt-block small { text-transform: none; font-weight: 500; }
+/* Metas en bloques: banda de color por bloque */
+.mt-block { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .03em; padding: 9px 10px; border-radius: 8px; margin-top: 14px; align-items: center; }
+.mt-block .mt-pct { display: block; font-size: 15px; letter-spacing: 0; text-transform: none; margin-top: 2px; }
+.mt-block.b-vida { background: #FAEEDA; color: #633806; } .mt-block.b-gen { background: #EEEDFE; color: #3C3489; } .mt-block.b-fut { background: #E1F5EE; color: #085041; }
+@media (prefers-color-scheme: dark) { .mt-block.b-vida { background: #633806; color: #FAC775; } .mt-block.b-gen { background: #3C3489; color: #CECBF6; } .mt-block.b-fut { background: #085041; color: #9FE1CB; } }
 .mt-sub > span:first-child { padding-left: 8px; }
+.mt-sub > span:first-child small { font-size: 13px; }
 .mt-bar.mt-sub { margin-left: 10px; }

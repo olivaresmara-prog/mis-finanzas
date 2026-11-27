@@ -785,9 +785,9 @@ let cuentaEvo = null;
 const META_GROUPS = { h: 'Hogar y necesidades', c: 'Ocio y caprichos', d: 'Donaciones y solidaridad', a: 'Ahorro', i: 'Inversión' };
 const META_KEYS = Object.keys(META_GROUPS);
 const META_BLOCKS = [
-  { title: 'Vida y gastos', keys: ['h', 'c'] },
-  { title: 'Generosidad y propósito', keys: ['d'] },
-  { title: 'Construcción de futuro', keys: ['a', 'i'] },
+  { title: 'Vida y gastos', keys: ['h', 'c'], cls: 'b-vida' },
+  { title: 'Generosidad y propósito', keys: ['d'], cls: 'b-gen' },
+  { title: 'Construcción de futuro', keys: ['a', 'i'], cls: 'b-fut' },
 ];
 const META_DEFAULT = { h: 40, c: 20, d: 10, a: 10, i: 20 };
 const metasAccount = () => S.accounts.find((a) => a.metasAccount && !a.archived);
@@ -861,8 +861,8 @@ function metasSection() {
   // Bloques: con varias filas, el título lleva el subtotal; con una sola fila, solo el título
   const blockHtml = (b) => {
     const head = b.keys.length > 1
-      ? `<div class="mt-row mt-block"><span>${b.title} <small>${sumKeys(pc, b.keys)} %</small></span><span>${money(sumKeys(d.meta, b.keys))}</span><span>${money(sumKeys(d.r, b.keys))}</span><span>${signed(sumKeys(d.meta, b.keys) - sumKeys(d.r, b.keys))}</span></div>`
-      : `<div class="mt-row mt-block"><span>${b.title}</span></div>`;
+      ? `<div class="mt-row mt-block ${b.cls}"><span>${b.title} <b class="mt-pct">${sumKeys(pc, b.keys)} %</b></span><span>${money(sumKeys(d.meta, b.keys))}</span><span>${money(sumKeys(d.r, b.keys))}</span><span>${signed(sumKeys(d.meta, b.keys) - sumKeys(d.r, b.keys))}</span></div>`
+      : `<div class="mt-row mt-block ${b.cls}"><span>${b.title} <b class="mt-pct">${sumKeys(pc, b.keys)} %</b></span></div>`;
     return head + b.keys.map(row).join('');
   };
   const label = (m) => {
@@ -1084,7 +1084,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.10</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.11</p>`;
 }
 
 function recRow(r) {
