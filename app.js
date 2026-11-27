@@ -67,10 +67,15 @@ const TYPES = {
   yield: { label: 'Rendimiento', icon: '✨' },
   set: { label: 'Actualizar saldo', icon: '🎯' },
 };
-const EXPENSE_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud y seguros', 'Impuestos', 'Ocio y compras', 'Donaciones'];
-// Categorías antiguas → nuevas (los gastos ya apuntados se agrupan solos, sin tocar los datos)
-const OLD_CATS = { Salud: 'Salud y seguros', Seguros: 'Salud y seguros', Ocio: 'Ocio y compras', Compras: 'Ocio y compras', Suscripciones: 'Ocio y compras', Viajes: 'Ocio y compras', Otros: 'Ocio y compras' };
-const normCat = (c) => (c ? OLD_CATS[c] || c : 'Ocio y compras');
+const EXPENSE_CATS = ['Hogar y necesidades', 'Ocio y caprichos', 'Donaciones y solidaridad'];
+// Categorías antiguas → nuevas (los gastos ya apuntados se reasignan solos, sin tocar los datos)
+const OLD_CATS = {
+  Vivienda: 'Hogar y necesidades', Suministros: 'Hogar y necesidades', 'Alimentación': 'Hogar y necesidades', Transporte: 'Hogar y necesidades',
+  'Salud y seguros': 'Hogar y necesidades', Salud: 'Hogar y necesidades', Seguros: 'Hogar y necesidades', Impuestos: 'Hogar y necesidades',
+  'Ocio y compras': 'Ocio y caprichos', Ocio: 'Ocio y caprichos', Compras: 'Ocio y caprichos', Suscripciones: 'Ocio y caprichos', Viajes: 'Ocio y caprichos', Otros: 'Ocio y caprichos',
+  Donaciones: 'Donaciones y solidaridad',
+};
+const normCat = (c) => (c ? OLD_CATS[c] || (EXPENSE_CATS.includes(c) ? c : 'Ocio y caprichos') : 'Ocio y caprichos');
 const EXTERNAL_CAT = 'Desde otra cuenta mía';
 const INCOME_CATS = ['Nómina', 'Paga extra', 'Ingreso extra', 'Aportación empresa', 'Devoluciones', EXTERNAL_CAT, 'Otros'];
 const FREQS = { weekly: 'Semanal', monthly: 'Mensual', quarterly: 'Trimestral', fourmonthly: 'Cuatrimestral', semiannual: 'Semestral', yearly: 'Anual' };
@@ -472,18 +477,18 @@ function accountMonthCard(a) {
   const startBal = startsHere ? +a.initialBalance || 0 : computeBalances(prevDay)[a.id]?.balance || 0;
   const endBal = computeBalances(last < today() ? last : today())[a.id]?.balance || 0;
   const movs = sortedMovements().filter((x) => x.date.startsWith(k) && (x.accountId === a.id || x.toAccountId === a.id) && applies(a.id, x.date));
-  const groups = { in: [], fixed: [], extra: [], out: [] };
+  const groups = { in: [], h: [], c: [], d: [], out: [] };
   let adjust = false;
   for (const x of movs) {
     if (x.type === 'income' || x.type === 'yield' || (x.type === 'transfer' && x.toAccountId === a.id)) groups.in.push(x);
-    // Mismo criterio que las metas: por categoría (Gastos / Otros gastos)
-    else if (x.type === 'expense') (catGroup(metasAccount() || {}, normCat(x.category)) === 'g' ? groups.fixed : groups.extra).push(x);
+    // Mismas categorías que las metas
+    else if (x.type === 'expense') groups[catGroup(normCat(x.category))].push(x);
     else if (x.type === 'transfer') groups.out.push(x);
     else if (x.type === 'set') adjust = true;
   }
   const sum = (arr) => arr.reduce((s2, x) => s2 + (+x.amount || 0), 0);
-  const tIn = sum(groups.in), tFix = sum(groups.fixed), tExt = sum(groups.extra), tOut = sum(groups.out);
-  const base = startBal + tIn, spent = tFix + tExt + tOut;
+  const tIn = sum(groups.in), tH = sum(groups.h), tC = sum(groups.c), tD = sum(groups.d), tOut = sum(groups.out);
+  const base = startBal + tIn, spent = tH + tC + tD + tOut;
   const p = (v) => (base > 0 ? `${((v / base) * 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %` : '');
   const label = (x) => {
     if (x.type === 'transfer') return x.toAccountId === a.id ? `${x.note || 'Traspaso'} · desde ${accName(x.accountId)}` : `${x.note || 'Traspaso'} · a ${accName(x.toAccountId)}`;
@@ -499,8 +504,9 @@ function accountMonthCard(a) {
       <div><div class="k">Entradas</div><div class="v pos">${money(tIn)}</div></div>
       <div><div class="k">${last < today() ? 'Saldo a fin de mes' : 'Saldo hoy'}</div><div class="v">${money(endBal)}</div></div></div>
     ${movs.length ? `${block('Entradas', groups.in, tIn, 'in', false)}
-    ${block('Gastos', groups.fixed, tFix, 'fix', true)}
-    ${block('Otros gastos', groups.extra, tExt, 'ext', true)}
+    ${block(META_GROUPS.h, groups.h, tH, 'fix', true)}
+    ${block(META_GROUPS.c, groups.c, tC, 'ext', true)}
+    ${block(META_GROUPS.d, groups.d, tD, 'don', true)}
     ${block('Traspasos y aportaciones', groups.out, tOut, 'out', true)}
     <div class="am-total"><span>Total salidas</span><span>${money(spent)}${base > 0 ? ` <small>${p(spent)}</small>` : ''}</span></div>
     <p class="hint" style="margin:6px 0 0">Los % se calculan sobre el saldo a 1 de mes más las entradas (${money(base)}).${adjust ? ' Este mes incluye un ajuste de saldo.' : ''}</p>`
@@ -776,21 +782,29 @@ const lastValueUpdate = (a) => S.movements.filter((m) => m.accountId === a.id &&
 // ─── Pestaña Cuentas: patrimonio, el mes, ingresos/gastos y cada cuenta ───
 let cuentaEvo = null;
 // ─── Metas 50/30/20 sobre la cuenta nómina ───
-const META_GROUPS = { g: 'Gastos', o: 'Otros gastos', i: 'Invertir' };
-const DEFAULT_GASTOS_CATS = ['Vivienda', 'Suministros', 'Alimentación', 'Transporte', 'Salud y seguros', 'Impuestos'];
+const META_GROUPS = { h: 'Hogar y necesidades', c: 'Ocio y caprichos', d: 'Donaciones y solidaridad', a: 'Ahorro', i: 'Inversión' };
+const META_KEYS = Object.keys(META_GROUPS);
+const META_BLOCKS = [
+  { title: 'Vida y gastos', keys: ['h', 'c'] },
+  { title: 'Generosidad y propósito', keys: ['d'] },
+  { title: 'Construcción de futuro', keys: ['a', 'i'] },
+];
+const META_DEFAULT = { h: 40, c: 20, d: 10, a: 10, i: 20 };
 const metasAccount = () => S.accounts.find((a) => a.metasAccount && !a.archived);
-const metasPct = (a) => ({ g: 50, o: 30, i: 20, ...(a.metasPct || {}) });
-/** Grupo de una categoría de gasto (configurable en la cuenta nómina). */
-function catGroup(ma, cat) {
-  const custom = ma.catGroups || {};
-  if (custom[cat]) return custom[cat];
-  return DEFAULT_GASTOS_CATS.includes(cat) ? 'g' : 'o';
+const metasPct = (a) => ({ ...META_DEFAULT, ...(a.metas5 || {}) });
+const sumKeys = (o, keys = META_KEYS) => keys.reduce((s2, k) => s2 + (o[k] || 0), 0);
+/** Grupo de las metas de una categoría de gasto. */
+const catGroup = (cat) => ({ 'Hogar y necesidades': 'h', 'Donaciones y solidaridad': 'd' })[normCat(cat)] || 'c';
+/** Grupo por defecto de una cuenta destino: depósitos y cuentas de ahorro → Ahorro; inversiones → Inversión; el resto → Hogar. */
+function defaultTransferGroup(dest) {
+  if (INVEST_KINDS.includes(dest.kind)) return 'i';
+  if (dest.kind === 'deposito' || dest.kind === 'ahorro') return 'a';
+  return 'h';
 }
 /** Grupo al que cuenta un traspaso que sale de la cuenta nómina hacia otra cuenta. */
 function transferGroup(dest) {
-  if (!dest) return 'o';
-  if (isSavingsAcc(dest)) return 'i';
-  return dest.metasGroup || (dest.kind === 'ahorro' ? 'i' : 'g');
+  if (!dest) return 'c';
+  return META_GROUPS[dest.metasGroup] ? dest.metasGroup : defaultTransferGroup(dest);
 }
 /** Periodos de nómina a nómina. Nóminas a menos de 10 días se tratan como un mismo cobro. */
 function metasPeriods(ma) {
@@ -809,24 +823,25 @@ function metasPeriodData(ma, p) {
   const inP = (m) => m.date >= p.start && m.date <= endDate && applies(ma.id, m.date);
   const movs = sortedMovements().filter((m) => (m.accountId === ma.id || m.toAccountId === ma.id) && inP(m));
   let nomina = 0, extra = 0, otherIn = 0;
-  const real = { g: [], o: [], i: [] };
+  const real = Object.fromEntries(META_KEYS.map((k) => [k, []]));
   for (const m of movs) {
     const amt = +m.amount || 0;
     if (m.type === 'income' && m.accountId === ma.id) { if (m.category === 'Nómina') nomina += amt; else if (m.category === 'Paga extra') extra += amt; else otherIn += amt; }
     else if ((m.type === 'transfer' && m.toAccountId === ma.id) || (m.type === 'yield' && m.accountId === ma.id)) otherIn += amt;
-    else if (m.type === 'expense' && m.accountId === ma.id) real[catGroup(ma, normCat(m.category))].push(m);
+    else if (m.type === 'expense' && m.accountId === ma.id) real[catGroup(m.category)].push(m);
     else if (m.type === 'transfer' && m.accountId === ma.id) real[transferGroup(acc(m.toAccountId))].push(m);
   }
   const pc = metasPct(ma);
   const base = ma.metasExtraToInvest ? nomina : nomina + extra;
-  const meta = { g: base * pc.g / 100, o: base * pc.o / 100, i: base * pc.i / 100 + (ma.metasExtraToInvest ? extra : 0) };
+  const meta = Object.fromEntries(META_KEYS.map((k) => [k, base * pc[k] / 100]));
+  if (ma.metasExtraToInvest) meta.i += extra;
   const sum = (arr) => arr.reduce((s2, m) => s2 + (+m.amount || 0), 0);
-  const r = { g: sum(real.g), o: sum(real.o), i: sum(real.i) };
+  const r = Object.fromEntries(META_KEYS.map((k) => [k, sum(real[k])]));
   const prevDay = toISO(new Date(parseISO(p.start).getTime() - 86400000));
   // Si la cuenta empieza dentro del periodo, su saldo inicial es lo que había antes de la nómina
   const before = ma.initialDate && ma.initialDate > prevDay ? +ma.initialBalance || 0 : computeBalances(prevDay)[ma.id]?.balance || 0;
-  const salidas = r.g + r.o + r.i;
-  return { nomina, extra, otherIn, base: nomina + extra, meta, real, r, before, salidas, sobrante: round2(nomina + extra + otherIn - salidas), endDate };
+  const salidas = sumKeys(r), metaTotal = sumKeys(meta);
+  return { nomina, extra, otherIn, base: nomina + extra, meta, metaTotal, real, r, before, salidas, rem: metaTotal - salidas, sobrante: round2(nomina + extra + otherIn - salidas), endDate };
 }
 
 let metasIdx = null;
@@ -840,26 +855,33 @@ function metasSection() {
   const row = (k) => {
     const meta = d.meta[k], real = d.r[k], rem = meta - real, over = real > meta + 0.005;
     const w = meta > 0 ? Math.min(100, (real / meta) * 100) : real > 0 ? 100 : 0;
-    return `<div class="mt-row"><span>${META_GROUPS[k]} <small>${pc[k]} %</small></span><span>${money(meta)}</span><span>${money(real)}</span><span class="${over ? 'neg' : 'pos'}">${signed(rem)}</span></div>
-      <div class="mt-bar"><i style="width:${Math.max(real > 0 ? 2 : 0, w)}%" class="${over ? 'over' : ''}"></i></div>`;
+    return `<div class="mt-row mt-sub"><span>${META_GROUPS[k]} <small>${pc[k]} %</small></span><span>${money(meta)}</span><span>${money(real)}</span><span class="${over ? 'neg' : 'pos'}">${signed(rem)}</span></div>
+      <div class="mt-bar mt-sub"><i style="width:${Math.max(real > 0 ? 2 : 0, w)}%" class="${over ? 'over' : ''}"></i></div>`;
+  };
+  // Bloques: con varias filas, el título lleva el subtotal; con una sola fila, solo el título
+  const blockHtml = (b) => {
+    const head = b.keys.length > 1
+      ? `<div class="mt-row mt-block"><span>${b.title} <small>${sumKeys(pc, b.keys)} %</small></span><span>${money(sumKeys(d.meta, b.keys))}</span><span>${money(sumKeys(d.r, b.keys))}</span><span>${signed(sumKeys(d.meta, b.keys) - sumKeys(d.r, b.keys))}</span></div>`
+      : `<div class="mt-row mt-block"><span>${b.title}</span></div>`;
+    return head + b.keys.map(row).join('');
   };
   const label = (m) => {
     if (m.type === 'transfer') return `${m.note || 'Traspaso'} · a ${accName(m.toAccountId)}`;
     return `${m.note || normCat(m.category)}${m.note ? ` · ${normCat(m.category)}` : ''}`;
   };
-  const detail = ['g', 'o', 'i'].map((k) => d.real[k].length ? `<div class="am-group"><div class="am-head ${k === 'g' ? 'fix' : k === 'o' ? 'ext' : 'out'}"><span>${META_GROUPS[k]}</span><span>${money(d.r[k])}</span></div>
+  const detail = META_KEYS.map((k) => d.real[k].length ? `<div class="am-group"><div class="am-head ${{ h: 'fix', c: 'ext', d: 'don', a: 'sav', i: 'out' }[k]}"><span>${META_GROUPS[k]}</span><span>${money(d.r[k])}</span></div>
     <ul class="fs-items am-items">${d.real[k].map((m) => `<li data-action="edit-mov" data-id="${m.id}"><span>${fmtShort(m.date)} · ${esc(label(m))}</span><span>${money(+m.amount)}</span></li>`).join('')}</ul></div>` : '').join('');
-  const totRem = d.meta.g + d.meta.o + d.meta.i - d.salidas;
+  const totRem = d.rem;
   return `<div class="month-nav"><button data-action="mt-prev" aria-label="Periodo anterior" ${metasIdx === 0 ? 'disabled' : ''}>‹</button>
       <span style="text-align:center"><strong>${monthLabel(p.labelY, p.labelM)}</strong><br><small class="muted">${fmtShort(p.start)} – ${p.end ? fmtShort(p.end) : 'hoy'}</small></span>
       <button data-action="mt-next" aria-label="Periodo siguiente" ${metasIdx === periods.length - 1 ? 'disabled' : ''}>›</button></div>
-    <p style="margin:4px 0 10px">Nómina cobrada <strong>${money(d.nomina)}</strong>${d.extra ? ` · Paga extra <strong>${money(d.extra)}</strong>${ma.metasExtraToInvest ? ' <small class="muted">(va entera a Invertir)</small>' : ''}` : ''}</p>
+    <p style="margin:4px 0 10px">Nómina cobrada <strong>${money(d.nomina)}</strong>${d.extra ? ` · Paga extra <strong>${money(d.extra)}</strong>${ma.metasExtraToInvest ? ' <small class="muted">(va entera a Inversión)</small>' : ''}` : ''}</p>
     <div class="mt-row mt-headrow"><span></span><span>Meta</span><span>Real</span><span>Remanente</span></div>
-    ${row('g')}${row('o')}${row('i')}
-    <div class="mt-row mt-total"><span>Total</span><span>${money(d.meta.g + d.meta.o + d.meta.i)}</span><span>${money(d.salidas)}</span><span class="${totRem < 0 ? 'neg' : ''}">${signed(totRem)}</span></div>
+    ${META_BLOCKS.map(blockHtml).join('')}
+    <div class="mt-row mt-total"><span>Total</span><span>${money(d.metaTotal)}</span><span>${money(d.salidas)}</span><span class="${totRem < 0 ? 'neg' : ''}">${signed(totRem)}</span></div>
     <div class="mt-sum">
-      <div><span>Remanente del mes</span><span>${signed(totRem)}</span></div>
-      <div><span>+ Remanentes anteriores</span><span>${money(d.before)}</span></div>
+      <div><span>Ahorro</span><span>${signed(totRem)}</span></div>
+      <div><span>+ Remanentes</span><span>${money(d.before)}</span></div>
       ${d.otherIn ? `<div><span>+ Otras entradas del periodo <small class="muted">(no cuentan en las metas)</small></span><span>${money(d.otherIn)}</span></div>` : ''}
       <div class="mt-sum-total"><span>= Dinero en Cuenta${p.end ? ` a ${fmtShort(p.end)}` : ''}</span><span>${money(totRem + d.before + d.otherIn)}</span></div>
     </div>
@@ -900,7 +922,7 @@ function sobranteSection() {
   if (!periods.length) return '<div class="empty">Apunta tu nómina (Ingreso, categoría Nómina) para ver lo que te sobra cada mes.</div>';
   const pts = periods.map((p) => {
     const d = metasPeriodData(ma, p);
-    return { label: new Date(p.labelY, p.labelM, 1).toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: `${monthLabel(p.labelY, p.labelM)} (${fmtShort(p.start)} – ${p.end ? fmtShort(p.end) : 'hoy'})`, v: round2(d.meta.g + d.meta.o + d.meta.i - d.salidas), d };
+    return { label: new Date(p.labelY, p.labelM, 1).toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''), full: `${monthLabel(p.labelY, p.labelM)} (${fmtShort(p.start)} – ${p.end ? fmtShort(p.end) : 'hoy'})`, v: round2(d.rem), d };
   });
   return `${chartSigned('chart-sob', pts, 'Remanente de cada periodo de nómina a nómina',
     (p) => `${esc(p.full)}<br>Nómina: ${money(p.d.base)}<br>Salió: ${money(p.d.salidas)}<br>Remanente: <strong>${signed(p.v)}</strong>`)}
@@ -911,26 +933,25 @@ function openMetasConfig() {
   const ma = metasAccount(); if (!ma) return;
   const pc = metasPct(ma);
   const body = `<form id="f-mt">
-    <p class="hint" style="margin:0 0 10px">Reparto de la nómina de <strong>${esc(ma.name)}</strong>. Los tres porcentajes deben sumar 100.</p>
-    <div class="stats" style="gap:8px">
-      <label><span>Gastos (%)</span><input name="g" type="number" min="0" max="100" step="1" value="${pc.g}"></label>
-      <label><span>Otros gastos (%)</span><input name="o" type="number" min="0" max="100" step="1" value="${pc.o}"></label>
-      <label><span>Invertir (%)</span><input name="i" type="number" min="0" max="100" step="1" value="${pc.i}"></label></div>
-    <label class="check"><input type="checkbox" name="extra" ${ma.metasExtraToInvest ? 'checked' : ''}> La paga extra va entera a Invertir</label>
-    <h4 style="margin:14px 0 6px">¿A qué grupo va cada categoría de gasto?</h4>
-    ${EXPENSE_CATS.map((c) => `<div class="two" style="align-items:center;margin-bottom:6px"><span>${esc(c)}</span><select name="cat-${esc(c)}"><option value="g" ${catGroup(ma, c) === 'g' ? 'selected' : ''}>Gastos</option><option value="o" ${catGroup(ma, c) === 'o' ? 'selected' : ''}>Otros gastos</option></select></div>`).join('')}
-    <p class="hint">Los traspasos a carteras, fondos, planes y depósitos cuentan siempre en Invertir. Para las demás cuentas (Santander, ahorro…), el grupo se elige en Editar de cada cuenta.</p>
+    <p class="hint" style="margin:0 0 10px">Reparto de la nómina de <strong>${esc(ma.name)}</strong>. Los porcentajes deben sumar 100.</p>
+    ${META_BLOCKS.map((b) => `<h4 style="margin:12px 0 6px">${b.title}</h4>
+      ${b.keys.map((k) => `<div class="two" style="align-items:center;margin-bottom:6px"><span>${META_GROUPS[k]}</span><label style="margin:0"><input name="${k}" type="number" min="0" max="100" step="1" value="${pc[k]}" aria-label="${META_GROUPS[k]} (%)"></label></div>`).join('')}`).join('')}
+    <p class="hint" data-mt-sum style="font-weight:600"></p>
+    <label class="check"><input type="checkbox" name="extra" ${ma.metasExtraToInvest ? 'checked' : ''}> La paga extra va entera a Inversión</label>
+    <p class="hint">Gastos: cada categoría va a su meta (Hogar y necesidades, Ocio y caprichos, Donaciones y solidaridad).<br>
+    Traspasos: a depósitos y cuentas de ahorro cuentan como <strong>Ahorro</strong>; a inversiones, robo-advisors y planes de pensiones, como <strong>Inversión</strong>. Para las demás cuentas (p. ej. Santander) se elige en Editar de cada cuenta.</p>
     <p class="err" hidden></p>
     <div class="actions"><span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancelar</button><button class="btn">Guardar</button></div></form>`;
   openSheet('Configurar metas', body, (root) => {
     const f = $('#f-mt', root);
+    const vals = () => Object.fromEntries(META_KEYS.map((k) => [k, parseInt(f.elements.namedItem(k).value, 10) || 0]));
+    const showSum = () => { const t = sumKeys(vals()); const el = $('[data-mt-sum]', f); el.textContent = `Total: ${t} %${t === 100 ? ' ✓' : ' (debe ser 100)'}`; el.style.color = t === 100 ? '' : 'var(--neg)'; };
+    f.addEventListener('input', showSum); showSum();
     f.addEventListener('submit', (e) => {
       e.preventDefault();
-      const g = parseInt(f.g.value, 10) || 0, o = parseInt(f.o.value, 10) || 0, i = parseInt(f.i.value, 10) || 0;
-      if (g + o + i !== 100) { const err = $('.err', f); err.textContent = `Los porcentajes suman ${g + o + i}: deben sumar 100.`; err.hidden = false; return; }
-      const catGroups = {};
-      for (const c of EXPENSE_CATS) catGroups[c] = f.elements.namedItem(`cat-${c}`).value;
-      store.update('accounts', ma.id, { metasPct: { g, o, i }, metasExtraToInvest: f.extra.checked, catGroups });
+      const v = vals(), t = sumKeys(v);
+      if (t !== 100) { const err = $('.err', f); err.textContent = `Los porcentajes suman ${t}: deben sumar 100.`; err.hidden = false; return; }
+      store.update('accounts', ma.id, { metas5: v, metasExtraToInvest: f.extra.checked });
       closeSheet(); toast('Metas guardadas');
     });
   });
@@ -952,7 +973,7 @@ function viewCuentas() {
     const ps = metasPeriods(ma);
     if (ps.length) {
       const d = metasPeriodData(ma, ps[ps.length - 1]); // el botón siempre muestra el periodo actual
-      metaVal = `Quedan ${money(d.meta.g + d.meta.o + d.meta.i - d.salidas)}`;
+      metaVal = `Quedan ${money(d.rem)}`;
       sobVal = signed(metasPeriodData(ma, ps[ps.length - 1]).sobrante);
     }
   }
@@ -1063,7 +1084,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.7</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.9</p>`;
 }
 
 function recRow(r) {
@@ -1201,8 +1222,8 @@ function openAccountForm(a = null) {
     <div class="two"><label class="amount"><span data-ib-label>Saldo inicial (€)</span><input name="initialBalance" inputmode="decimal" placeholder="0,00" value="${amountInput(x.initialBalance)}"></label>
     <label><span>A fecha de</span><input type="date" name="initialDate" value="${x.initialDate || today()}"></label></div>
     <div data-kind="corriente ahorro efectivo otro">
-      <label class="check"><input type="checkbox" name="metasAccount" ${x.metasAccount ? 'checked' : ''}> Es mi cuenta de nómina (para calcular las metas 50/30/20)</label>
-      <label data-not-metas><span>Lo que le envíe desde la cuenta nómina cuenta en las metas como</span><select name="metasGroup">${Object.entries(META_GROUPS).map(([k, v]) => `<option value="${k}" ${(x.metasGroup || (x.kind === 'ahorro' ? 'i' : 'g')) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
+      <label class="check"><input type="checkbox" name="metasAccount" ${x.metasAccount ? 'checked' : ''}> Es mi cuenta de nómina (para calcular las metas)</label>
+      <label data-not-metas><span>Lo que le envíe desde la cuenta nómina cuenta en las metas como</span><select name="metasGroup">${Object.entries(META_GROUPS).map(([k, v]) => `<option value="${k}" ${transferGroup({ kind: x.kind, metasGroup: x.metasGroup }) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
     <div data-kind="pension">
       <div class="two"><label><span>Tipo de plan</span><select name="pensionType"><option value="individual" ${x.pensionType !== 'empleo' ? 'selected' : ''}>Individual</option><option value="empleo" ${x.pensionType === 'empleo' ? 'selected' : ''}>De empleo (empresa)</option></select></label>
       <label><span>Límite anual deducible (€)</span><input name="annualLimit" inputmode="decimal" placeholder="1.500" value="${amountInput(x.annualLimit)}"></label></div>
