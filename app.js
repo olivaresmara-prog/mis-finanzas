@@ -507,7 +507,7 @@ function accountMonthCard(a) {
     ${block(META_GROUPS.h, groups.h, tH, 'fix', true)}
     ${block(META_GROUPS.c, groups.c, tC, 'ext', true)}
     ${block(META_GROUPS.d, groups.d, tD, 'don', true)}
-    ${block('Traspasos y aportaciones', groups.out, tOut, 'out', true)}
+    ${block('Traspasos', groups.out, tOut, 'out', true)}
     <div class="am-total"><span>Total salidas</span><span>${money(spent)}${base > 0 ? ` <small>${p(spent)}</small>` : ''}</span></div>
     <p class="hint" style="margin:6px 0 0">Los % se calculan sobre el saldo a 1 de mes más las entradas (${money(base)}).${adjust ? ' Este mes incluye un ajuste de saldo.' : ''}</p>`
     : '<div class="empty">Sin movimientos este mes.</div>'}</section>`;
@@ -1084,7 +1084,7 @@ function viewMore() {
            <button class="btn danger small" data-action="logout">Cerrar sesión</button>`
         : `<p style="margin:0">📱 <strong>Modo local</strong>: los datos solo se guardan en este navegador. Para sincronizar móvil y ordenador, configura Firebase siguiendo el README.</p>`}
     </section>
-    <p class="hint" style="text-align:center">Mis Finanzas · v3.9</p>`;
+    <p class="hint" style="text-align:center">Mis Finanzas · v3.10</p>`;
 }
 
 function recRow(r) {
